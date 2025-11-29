@@ -54,8 +54,25 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
-    queryset = Service.objects.all().order_by("id")
     serializer_class = ServiceSerializer
+
+    def get_queryset(self):
+        # Only show active services by default (catalog)
+        return Service.objects.filter(active=True).order_by("id")
+    
+    # Log price changes when a service is updated (optional SRS 5.0 price history)
+    def perform_update(self, serializer):
+        service = self.get_object()
+        old_price = service.price
+        instance = serializer.save()
+        # If price is provided and changed, write a history row
+        if "price" in serializer.validated_data and instance.price != old_price:
+            from .models import PriceHistory  # ensure PriceHistory exists in your models
+            PriceHistory.objects.create(
+                service=instance,
+                old_price=old_price,
+                new_price=instance.price,
+            )
 
 
 class StaffViewSet(viewsets.ModelViewSet):
@@ -86,6 +103,12 @@ class BookingViewSet(viewsets.ModelViewSet):
         staff = data.get("staff")
         start_time = data["start_time"]
         notes = data.get("notes", "")
+
+        if hasattr(service, "active") and not service.active:
+            return Response(
+                {"detail": "This service is not currently available."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             booking = self.manager.create_booking(
