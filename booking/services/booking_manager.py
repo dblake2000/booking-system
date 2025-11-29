@@ -61,26 +61,21 @@ class BookingManager:
         return booking
 
     @transaction.atomic
-    def cancel_booking(self, booking: Booking, cutoff_minutes: int = 120) -> bool:
+    def cancel_booking(self, booking, cutoff_minutes: int = 120) -> bool:
         """
         Cancel a booking if outside the cutoff window.
-
-        SRS 3.0:
-        - Prevent cancellation within 2 hours of start.
-
-        Args:
-            booking: Booking instance to cancel
-            cutoff_minutes: minutes before start when cancellation is blocked
-
-        Returns:
-            True if cancelled (deleted).
-
-        Raises:
-            ValueError: if within cutoff.
+        If Booking.status exists, set to CANCELLED; otherwise delete.
         """
         now = timezone.now()
         if booking.start_time - now <= timedelta(minutes=cutoff_minutes):
             raise ValueError("Cannot cancel within 2 hours of appointment start.")
 
+        # If the model has a 'status' field, use it.
+        if hasattr(booking, "status"):
+            booking.status = "CANCELLED"
+            booking.save(update_fields=["status"])
+            return True
+
+        # Fallback: delete if status doesn't exist (older version)
         booking.delete()
         return True

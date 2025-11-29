@@ -1,25 +1,39 @@
 """
 availability_engine.py
 ----------------------
-Computes availability by checking candidate time slots against existing bookings.
+Computes availability by checking candidate time slots against:
+1) existing bookings (to prevent double-booking), and
+2) optional staff availability windows (if defined).
 
 Alignment with SRS/SDS:
 - SRS 7.0 Date & Time Selection:
   * Only show valid (free) time slots.
   * Prevent double-booking.
-  * Exclude past-time slots (handled in the view layer).
-- SDS Components:
+  * Past-time filtering is done in the view layer (BookingViewSet.availability).
+- SDS:
   * AvailabilityEngine evaluates conflicts.
-  * Future: integrate StaffAvailability, business hours from SettingsManager, buffers.
+  * Integrates business hours (via slot_utils) and StaffAvailability windows.
 
 Beginner notes:
-- This module queries the Booking table to detect conflicts.
-- The overlap logic is simple and good enough for a student project demo.
+- If you haven't added any StaffAvailability rows, this engine will treat staff
+  as available by default (so your demo still works).
+- If you add StaffAvailability rows for a staff member, the slot must fit
+  inside at least one of that staff member's availability windows.
 """
 
 from datetime import timedelta
 from django.db.models import Q
+
 from ..models import Booking, Staff
+
+# Optional import: if staff availability exists, we'll use it.
+try:
+    from staff.models import StaffAvailability  # defined in staff/models.py
+    HAS_STAFF_AVAILABILITY = True
+except Exception:
+    # If staff app or model isn't ready, we gracefully skip this feature.
+    StaffAvailability = None
+    HAS_STAFF_AVAILABILITY = False
 
 
 class AvailabilityEngine:
@@ -29,59 +43,79 @@ class AvailabilityEngine:
     - Build a list of available slots for a day by checking all staff.
     """
 
-    def is_slot_available_for_staff(self, staff: Staff, service, start_time) -> bool:
+    def _fits_staff_availability(self, staff: Staff, start_time, duration_minutes: int) -> bool:
         """
-        Check if 'staff' is free for the duration of 'service' starting at 'start_time'.
+        If StaffAvailability rows exist for this staff, the slot must be fully
+        contained within at least one availability window.
 
-        Overlap rule (basic, easy to understand):
-        - Compute service duration 'D'.
-        - Consider the window [start_time - D, start_time + D).
-        - If any existing booking for this staff starts inside that window,
-          treat the new slot as conflicting.
-
-        Args:
-            staff: Staff instance to check.
-            service: Service instance (we need service.duration_minutes).
-            start_time: Aware datetime for the candidate start.
-
-        Returns:
-            True if no conflict; False if conflict exists.
+        If there are NO availability rows for this staff:
+          - We treat staff as available by default (easy for demos).
+          - You can change this policy later to "not available unless defined".
         """
-        duration = timedelta(minutes=service.duration_minutes)
+        if not HAS_STAFF_AVAILABILITY:
+            return True  # feature not active; allow
+
+        duration = timedelta(minutes=duration_minutes)
         end_time = start_time + duration
 
-        conflict_exists = Booking.objects.filter(staff=staff).filter(
+        # All windows that fully cover the [start_time, end_time) interval
+        qs = StaffAvailability.objects.filter(
+            staff=staff,
+            start_time__lte=start_time,
+            end_time__gte=end_time,
+        )
+
+        if qs.exists():
+            return True
+
+        # If the staff has zero availability rows at all, allow by default
+        if not StaffAvailability.objects.filter(staff=staff).exists():
+            return True
+
+        # Otherwise, availability rows exist but none cover this slot -> not available
+        return False
+
+    def _has_booking_conflict(self, staff: Staff, start_time, duration_minutes: int) -> bool:
+        """
+        Simple overlap rule (easy to understand):
+        - Let D be the service duration.
+        - Any booking for the same staff with start_time in [start_time - D, start_time + D)
+          is treated as overlapping for our student project purposes.
+        """
+        duration = timedelta(minutes=duration_minutes)
+        end_time = start_time + duration
+
+        return Booking.objects.filter(staff=staff).filter(
             Q(start_time__lt=end_time) & Q(start_time__gte=start_time - duration)
         ).exists()
 
-        return not conflict_exists
+    def is_slot_available_for_staff(self, staff: Staff, service, start_time) -> bool:
+        """
+        A staff member is available for a slot if:
+        - The slot does NOT conflict with existing bookings, AND
+        - (If StaffAvailability windows exist) the slot fits inside one window.
+        """
+        # 1) Check conflicts with existing bookings
+        if self._has_booking_conflict(staff, start_time, service.duration_minutes):
+            return False
+
+        # 2) Check staff availability windows (if feature is active)
+        if not self._fits_staff_availability(staff, start_time, service.duration_minutes):
+            return False
+
+        return True
 
     def find_available_slots(self, service, date_start, staff_queryset):
         """
-        Given a service and a day start, compute all slot starts (business hours),
-        then include slots where at least one staff member is free.
-
-        Args:
-            service: Service instance (uses service.duration_minutes).
-            date_start: Aware datetime marking the start of the target day.
-            staff_queryset: QuerySet[Staff] to consider for availability.
+        Build a list of candidate slot starts across business hours (from slot_utils),
+        then include only slots where at least one staff member is free.
 
         Returns:
-            dict with shape:
-            {
-              "slots": [
-                { "start_time": ISO8601_string, "staff_ids": [1,2,...] },
-                ...
-              ]
-            }
-
-        Notes:
-            - We delegate slot generation to slot_utils.generate_slots_for_day.
-            - We do not filter by staff skills here; you can add that later.
+            dict: { "slots": [ { "start_time": ISO8601, "staff_ids": [1,2,...] }, ... ] }
         """
         from .slot_utils import generate_slots_for_day
 
-        # Build candidate slot starts across business hours
+        # Candidate starts across business hours (BUSINESS_OPEN/CLOSE or defaults)
         slots = generate_slots_for_day(
             service_duration_minutes=service.duration_minutes,
             date_start=date_start,
@@ -96,8 +130,6 @@ class AvailabilityEngine:
 
             # Only include the slot if at least one staff is free
             if free_staff_ids:
-                results.append(
-                    {"start_time": start.isoformat(), "staff_ids": free_staff_ids}
-                )
+                results.append({"start_time": start.isoformat(), "staff_ids": free_staff_ids})
 
         return {"slots": results}

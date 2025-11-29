@@ -28,8 +28,9 @@ class BookingSerializer(serializers.ModelSerializer):
             "start_time",
             "created_at",
             "notes",
+            "status",  # expose status
         ]
-        read_only_fields = ["created_at"]
+        read_only_fields = ["created_at", "status"]  # API cannot set status directly
 
     def validate(self, attrs):
         # SRS 7.0: prevent past dates
