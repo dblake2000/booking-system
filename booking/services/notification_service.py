@@ -133,3 +133,20 @@ class NotificationService:
             recipient_list=[booking.client.email],
             fail_silently=False,
         )
+
+    def send_feedback_request(self, booking) -> None:
+        subject = f"Please leave feedback for Booking #{booking.id}"
+        body = (
+            f"Hi {booking.client.name},\n\n"
+            "We hope your appointment went well!\n"
+            "Please leave a quick rating and comment.\n\n"
+            "(This is a demo message printed to the terminal.)"
+        )
+        send_mail(
+            subject=subject,
+            message=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[booking.client.email],
+            fail_silently=False,
+        )
+        

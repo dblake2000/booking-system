@@ -12,12 +12,13 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from .models import ClientProfile, Service, Staff, Booking
+from .models import ClientProfile, Service, Staff, Booking, Feedback
 from .serializers import (
     ClientProfileSerializer,
     ServiceSerializer,
     StaffSerializer,
     BookingSerializer,
+    FeedbackSerializer
 )
 
 from .services.booking_manager import BookingManager
@@ -198,3 +199,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                 filtered.append(s)
 
         return Response({"slots": filtered})
+    
+class FeedbackViewSet(viewsets.ModelViewSet):
+    queryset = Feedback.objects.all().order_by("-created_at")
+    serializer_class = FeedbackSerializer

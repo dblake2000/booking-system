@@ -94,3 +94,15 @@ class PriceHistory(models.Model):
     old_price = models.DecimalField(max_digits=8, decimal_places=2)
     new_price = models.DecimalField(max_digits=8, decimal_places=2)
     changed_at = models.DateTimeField(auto_now_add=True)
+
+class Feedback(models.Model):
+    """
+    Feedback for a completed appointment.
+    """
+    booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name="feedback")
+    rating = models.PositiveSmallIntegerField()  # 1..5
+    comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Feedback for booking #{self.booking_id} (rating {self.rating})"
