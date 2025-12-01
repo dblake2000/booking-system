@@ -46,3 +46,25 @@ Test quickly:
 
 Emails:
 - Console email backend prints to the server terminal (free).
+
+## Reminders, Services (active/price), and Feedback
+
+Reminders (SRS 4.0)
+- Management command prints 48h/24h reminder "emails":
+  python manage.py send_reminders --when 48
+  python manage.py send_reminders --when 24
+
+Service catalog & price (SRS 2.0, 5.0, 8.0, 9.0)
+- Only active services listed at /api/services/
+- Toggle active via PATCH /api/services/{id}/ {"active": false}
+- Booking rejects inactive services
+- Price updates via PATCH /api/services/{id}/ {"price": "85.00"} (validators enforce >0)
+- (Optional) PriceHistory captures changes
+
+Feedback (SRS 10.0)
+- POST /api/feedback/ after appointment time (rating 1..5, comment)
+- Optional: request feedback for recent completed bookings:
+  python manage.py request_feedback
+
+Email backend
+- Console (free): printed to terminal

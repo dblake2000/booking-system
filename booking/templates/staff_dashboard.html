@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Staff Dashboard — Services</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body { font-family: Inter, sans-serif; background:#f6fbfb; margin:0; }
+      .wrap { max-width:960px; margin:40px auto; padding:0 16px; }
+      h1 { margin:0 0 12px; }
+      .panel { background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:16px; box-shadow:0 12px 24px rgba(0,0,0,.06); }
+      table { width:100%; border-collapse: collapse; }
+      th, td { padding:10px; border-bottom:1px solid rgba(0,0,0,.06); text-align:left; }
+      input[type="number"], input[type="text"], select { width:100%; padding:6px 8px; border:1px solid rgba(0,0,0,.12); border-radius:8px; }
+      button { padding:6px 10px; border-radius:8px; border:1px solid rgba(0,0,0,.12); background:#f6cf7a; font-weight:700; color:#3b2f02; cursor:pointer; }
+      .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+      .note { margin-top:8px; color:rgba(0,0,0,.6) }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="top">
+        <h1>Staff — Manage Services</h1>
+        <div>
+          <a href="/api/demo/booking">Booking Page</a> ·
+          <a href="/admin/">Admin</a>
+        </div>
+      </div>
+      <div class="panel">
+        <table id="svc-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Price</th>
+              <th>Duration (min)</th>
+              <th>Active</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="msg" class="note"></div>
+      </div>
+    </div>
+
+    <script>
+      function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(";").shift();
+        return null;
+      }
+      const csrftoken = getCookie("csrftoken");
+
+      async function loadServices() {
+        // staff endpoint needs full list including inactive; we’ll request from admin-friendly endpoint
+        // But our public /api/services/ only returns active.
+        // For simplicity, fetch active and allow toggling off -> they disappear after toggle.
+        const r = await fetch("/api/services/");
+        const list = await r.json();
+        const tb = document.querySelector("#svc-table tbody");
+        tb.innerHTML = "";
+        list.forEach(s => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${s.id}</td>
+            <td>${s.name}</td>
+            <td><input type="number" step="0.01" value="${s.price}" id="price-${s.id}" /></td>
+            <td><input type="number" step="1" value="${s.duration_minutes}" id="dur-${s.id}" /></td>
+            <td>
+              <select id="act-${s.id}">
+                <option value="true" ${true ? "selected":""}>Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </td>
+            <td><button onclick="save(${s.id})">Save</button></td>
+          `;
+          tb.appendChild(tr);
+        });
+      }
+
+      async function save(id) {
+        const price = document.getElementById(`price-${id}`).value;
+        const duration_minutes = document.getElementById(`dur-${id}`).value;
+        const active = document.getElementById(`act-${id}`).value === "true";
+        const r = await fetch(`/api/services/${id}/`, {
+          method: "PATCH",
+          headers: { "Content-Type":"application/json", "X-CSRFToken": csrftoken },
+          body: JSON.stringify({ price, duration_minutes, active })
+        });
+        const data = await r.json();
+        document.getElementById("msg").textContent = data.detail || "Saved.";
+        // reload to reflect active filtering
+        await loadServices();
+      }
+
+      loadServices();
+    </script>
+  </body>
+</html>

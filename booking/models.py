@@ -1,9 +1,14 @@
 from django.db import models
 from django.core.validators import MinValueValidator
-
+from django.contrib.auth.models import User
 
 # --- CLIENT MODEL ---
 class ClientProfile(models.Model):
+    """
+    Extends Django's User for clients.
+    Each client user has exactly one ClientProfile.
+    """
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="client_profile")
     name = models.CharField(max_length=200)
     email = models.EmailField(unique=True)
 

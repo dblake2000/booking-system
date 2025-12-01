@@ -178,6 +178,10 @@
       <p class="brand-sub">
         Beautiful protective styles • Honest pricing • Easy booking
       </p>
+      <div style="margin-top:8px;">
+        <a href="/api/login" style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600;">Login</a>
+        <a href="/admin/" style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600; margin-left:6px;">Staff Admin</a>
+      </div>
     </header>
 
     <div class="container">
@@ -394,11 +398,22 @@
           body: JSON.stringify(payload),
         });
         const result = await rb.json();
-        document.getElementById("result").textContent = JSON.stringify(
-          result,
-          null,
-          2
-        );
+if (rb.ok) {
+  // Redirect to confirmation page with summary details
+  // You already have serviceSelect selected; we need service name and price
+  const svcOpt = document.getElementById("serviceSelect").selectedOptions[0].textContent;
+  const svcName = svcOpt.split(" — ")[0];
+  const svcPrice = (svcOpt.split(" — ")[1] || "").replace("$","");
+
+  const url = new URL(window.location.origin + "/api/confirm");
+  url.searchParams.set("id", result.id);
+  url.searchParams.set("service", svcName);
+  url.searchParams.set("price", svcPrice);
+  url.searchParams.set("start", result.start_time);
+  window.location.href = url.toString();
+} else {
+  document.getElementById("result").textContent = JSON.stringify(result, null, 2);
+}
       }
 
       // init
