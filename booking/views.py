@@ -3,11 +3,17 @@
 # Purpose:
 # - CRUD APIs for Clients, Services, Staff, Bookings, and Feedback.
 # - Availability endpoint (SRS 7.0) with robust date parsing.
-# - Console "emails" for confirmations/cancellations (FREE) (SRS 6.0, SRS 3.0).
+# - Email confirmations/cancellations (SRS 6.0, SRS 3.0).
 # - Permissions:
 #   * Service writes are staff-only (price updates, activate/deactivate).
 #   * Booking creation requires NO login. Public flow: create client -> create booking.
-
+#
+# Change log (2025-12-03):
+# - On successful booking creation, set status="confirmed" and save.
+#   This triggers the notifications.signals.post_save hook to send the
+#   confirmation email using Django's email backend configured in settings.
+#
+import re
 from django.utils.dateparse import parse_date
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -26,12 +32,13 @@ from .serializers import (
     FeedbackSerializer,
 )
 from .services.booking_manager import BookingManager
-from .services.notification_service import NotificationService  # console email (FREE)
+from .services.notification_service import NotificationService  # legacy console helper
 from .services.availability_engine import AvailabilityEngine  # computes open slots
+
+PHONE_RE = re.compile(r"^\d{7,15}$")
 
 
 # -------------------- Permissions --------------------
-
 class IsStaffOrReadOnly(BasePermission):
     """
     Read: anyone
@@ -44,10 +51,33 @@ class IsStaffOrReadOnly(BasePermission):
 
 
 # -------------------- ViewSets --------------------
-
 class ClientProfileViewSet(viewsets.ModelViewSet):
     queryset = ClientProfile.objects.all().order_by("id")
     serializer_class = ClientProfileSerializer
+
+    def create(self, request, *args, **kwargs):
+        """
+        Create ClientProfile with basic validation for name/email/phone.
+        Phone must be 7–15 digits (digits only).
+        """
+        name = (request.data.get("name") or "").strip()
+        email = (request.data.get("email") or "").strip()
+        phone = (request.data.get("phone") or "").strip()
+
+        if not name or not email or not phone:
+            return Response({"detail": "name, email, and phone are required."}, status=400)
+
+        if not PHONE_RE.match(phone):
+            return Response(
+                {"detail": "Phone must be digits only, 7 to 15 digits."},
+                status=400,
+            )
+
+        serializer = self.get_serializer(data={"name": name, "email": email, "phone": phone})
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=201, headers=headers)
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
@@ -61,7 +91,9 @@ class ServiceViewSet(viewsets.ModelViewSet):
     permission_classes = [IsStaffOrReadOnly]
 
     def get_queryset(self):
-        # Staff can see all; public sees only active
+        """
+        Staff can see all services; public sees only active services.
+        """
         user = getattr(self.request, "user", None)
         qs = Service.objects.all().order_by("id")
         if user and user.is_authenticated and user.is_staff:
@@ -96,39 +128,43 @@ class BookingViewSet(viewsets.ModelViewSet):
     - POST   /api/bookings/{id}/cancel/       cancel with 2h cutoff (SRS 3.0)
     - GET    /api/bookings/availability/      availability (SRS 7.0)
 
-    Public booking flow:
-    - NO login required. Clients can create a ClientProfile (name/email) then book.
+    Public booking flow (no login):
+    - Create a ClientProfile (name/email/phone), then create a booking.
     """
     queryset = Booking.objects.all().order_by("-start_time")
     serializer_class = BookingSerializer
     manager = BookingManager()
-    notifier = NotificationService()
+    notifier = NotificationService()  # legacy console notifier (kept for cancel)
 
     def create(self, request, *args, **kwargs):
         """
-        Create a booking:
-        - No login required.
-        - Expects client (ClientProfile id), service id, optional staff id, start_time (ISO).
+        Create a booking with validated payload:
+        - Requires: client (ClientProfile PK), service (PK), start_time (ISO).
+        - Optional: staff (PK), notes (str).
         - Blocks inactive services.
-        - Sends confirmation (console) on success.
+        - IMPORTANT: After creating the booking, immediately set status to "confirmed"
+          and save. This triggers notifications.signals.post_save to send a
+          real email confirmation to the client's email address using the configured
+          EMAIL_BACKEND.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        client = data["client"]           # PK -> instance
+        client = data["client"]
         service = data["service"]
-        staff = data.get("staff")         # optional
+        staff = data.get("staff")
         start_time = data["start_time"]
         notes = data.get("notes", "")
 
-        # Block inactive services
+        # Block inactive services (safer for public API)
         if hasattr(service, "active") and not service.active:
             return Response(
                 {"detail": "This service is not currently available."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Create booking via domain manager to keep logic centralized
         try:
             booking = self.manager.create_booking(
                 client=client,
@@ -140,9 +176,21 @@ class BookingViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # SRS 6.0: confirmation to console (FREE)
-        self.notifier.send_confirmation(booking)
+        # Immediately confirm booking so the post_save signal sends the email.
+        # The signal handler lives in notifications/signals.py and will:
+        # - Compose a professional confirmation message
+        # - Send an email to booking.client.email
+        # - Create a Notification record
+        if getattr(booking, "status", None) != "confirmed":
+            booking.status = "confirmed"
+            # Save only the field that changed to avoid redundant writes
+            booking.save(update_fields=["status"])
 
+        # Note: Leaving legacy console confirmation call in place is optional.
+        # It can be removed if redundant with real email sending via signal.
+        # self.notifier.send_confirmation(booking)
+
+        # Re-serialize to include updated status
         out = BookingSerializer(booking)
         headers = self.get_success_headers(out.data)
         return Response(out.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -151,11 +199,11 @@ class BookingViewSet(viewsets.ModelViewSet):
     def cancel(self, request, pk=None):
         """
         Cancel a booking (public). Respects 2-hour cutoff.
-        NOTE: if you want to restrict who can cancel later, re-add checks.
+        On success, sends a cancellation notification (legacy console notifier retained).
         """
         booking = get_object_or_404(Booking, pk=pk)
 
-        # capture before cancellation (for email)
+        # capture before cancellation (for email/notification if needed)
         snapshot = {
             "id": booking.id,
             "client_email": booking.client.email,
@@ -167,6 +215,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Existing console cancellation (can be upgraded to real email later)
         self.notifier.send_cancellation(snapshot)
         return Response({"detail": "Booking cancelled."}, status=status.HTTP_200_OK)
 
@@ -175,6 +224,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         """
         GET /api/bookings/availability/?service=ID&date=YYYY-MM-DD
         Also accepts inputs that include time; we trim to the date part.
+        Filters out past slots relative to current timezone.
         """
         service_id = (request.query_params.get("service") or "").strip()
         date_raw = (request.query_params.get("date") or "").strip()
@@ -193,7 +243,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         else:
             date_str = date_raw
 
-        # Validate
+        # Validate date format
         d = parse_date(date_str)
         if d is None:
             return Response(
@@ -201,7 +251,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Resolve service
+        # Resolve service or 404
         service = get_object_or_404(Service, pk=service_id)
 
         # Convert date to TZ-aware day start
