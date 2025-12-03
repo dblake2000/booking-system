@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Hair by Lasheka — Booking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Google Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --brand-teal: #2aa39a;
+        --panel-cream: #fffaf2;
+        --text-dark: #1d2b2b;
+        --accent-gold: #f6cf7a;
+        --muted: rgba(0, 0, 0, 0.55);
+        --border: rgba(0, 0, 0, 0.08);
+        --focus: #0ea5a5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--brand-teal);
+        font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial,
+          sans-serif;
+        color: var(--text-dark);
+      }
+      header {
+        text-align: center;
+        padding: 32px 16px 8px;
+        color: #fff;
+      }
+      .brand-title {
+        font-family: "Great Vibes", cursive;
+        font-size: 42px;
+        margin: 0 0 6px;
+      }
+      .brand-sub {
+        margin: 0;
+        opacity: 0.9;
+      }
+
+      .container {
+        max-width: 1100px;
+        margin: 18px auto 60px;
+        padding: 0 16px;
+      }
+      .panel {
+        background: var(--panel-cream);
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 20px;
+        margin-bottom: 18px;
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+      }
+      .panel h2 {
+        margin: 0 0 10px;
+        font-weight: 600;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+      }
+      .col-6 {
+        grid-column: span 6;
+      }
+      .col-12 {
+        grid-column: span 12;
+      }
+      @media (max-width: 900px) {
+        .col-6 {
+          grid-column: span 12;
+        }
+      }
+
+      /* Catalog */
+      .category {
+        margin-top: 8px;
+      }
+      .category h3 {
+        font-weight: 600;
+        margin: 16px 0 8px;
+        border-left: 4px solid var(--accent-gold);
+        padding-left: 10px;
+      }
+      .svc-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px dashed rgba(0, 0, 0, 0.12);
+      }
+      .svc-name {
+        font-weight: 500;
+      }
+      .svc-price {
+        font-weight: 600;
+      }
+      .note {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin-top: 8px;
+      }
+
+      /* Form */
+      label {
+        font-weight: 600;
+        display: block;
+        margin-top: 10px;
+      }
+      input,
+      select,
+      button,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        margin-top: 6px;
+        font-size: 1rem;
+      }
+      textarea {
+        resize: vertical;
+      }
+
+      button {
+        background: var(--accent-gold);
+        color: #3b2f02;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.05s ease, box-shadow 0.2s;
+        margin-top: 14px;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.15);
+      }
+
+      .pill {
+        display: inline-block;
+        background: #ffffffa6;
+        color: #1a2a2a;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-size: 0.9rem;
+        margin-right: 6px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      pre {
+        background: #fff;
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        max-height: 260px;
+        overflow: auto;
+      }
+
+      .slot-btn {
+        display: inline-block;
+        margin: 6px 8px 0 0;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #fff;
+        cursor: pointer;
+        width: auto;
+      }
+      .slot-btn:hover {
+        background: #fdf6e9;
+      }
+      .slot-btn.selected {
+        background: #0ea5a51a;
+        border-color: var(--focus);
+        box-shadow: 0 0 0 3px rgba(14, 165, 165, 0.15);
+        color: #0a3d3d;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1 class="brand-title">Hair by Lasheka</h1>
+      <p class="brand-sub">Beautiful protective styles • Honest pricing • Easy booking</p>
+
+      <!-- Links row: Bookings button only for staff; otherwise Login -->
+      <div style="margin-top: 8px">
+        {% if request.user.is_authenticated and request.user.is_staff %}
+          <!-- Staff-only: Bookings calendar link (requires URL name 'bookings_calendar') -->
+          <a
+            href="{% url 'bookings_calendar' %}"
+            style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600; margin-right:6px;"
+            >Bookings</a>
+          <!-- Staff Admin shortcut (default Django admin) -->
+          <a
+            href="/admin/"
+            style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600;"
+            >Staff Admin</a>
+        {% else %}
+          <!-- Public: Login link to admin (so staff can sign in) -->
+          <a
+            href="/admin/login/?next={{ request.path|urlencode }}"
+            style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600;"
+            >Login</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <div class="container">
+      <div class="grid">
+        <!-- Left: Catalog -->
+        <div class="col-6">
+          <div class="panel">
+            <h2>
+              Service Catalog <span id="svc-count" class="pill">0 services</span>
+            </h2>
+            <div id="catalog"><p class="muted">Loading services…</p></div>
+
+            <div class="note">
+              Notes:
+              <ul>
+                <li>Prices are in JMD.</li>
+                <li>
+                  Prices include up to waist length; additional length incurs an
+                  extra charge.
+                </li>
+                <li>
+                  Take Down includes detangling and hair braided into large
+                  braids. No wash included.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Booking form -->
+        <div class="col-6">
+          <div class="panel">
+            <h2>Book an Appointment</h2>
+
+            <label>Choose Service</label>
+            <select id="serviceSelect"></select>
+
+            <label>Pick Date (YYYY‑MM‑DD)</label>
+            <input id="dateStr" placeholder="2025-12-23" />
+
+            <button onclick="checkAvailability()">Show Available Times</button>
+            <div id="slots" class="note"></div>
+
+            <label>Your Name</label>
+            <input id="clientName" placeholder="Jane Doe" />
+
+            <label>Your Email</label>
+            <input id="clientEmail" placeholder="jane@example.com" />
+
+            <label>Your Phone (digits only, 7–15)</label>
+            <input id="clientPhone" placeholder="8761234567" />
+
+            <label>Staff ID (optional)</label>
+            <input id="staffId" placeholder="e.g., 1 — if blank we’ll assign" />
+
+            <label>Special requests / Hair type (optional)</label>
+            <textarea
+              id="notes"
+              rows="3"
+              placeholder="Any notes for the stylist..."
+            ></textarea>
+
+            <!-- Hidden ISO field + friendly text -->
+            <input id="startIso" type="hidden" />
+            <div id="prettyTime" class="note">No time selected yet.</div>
+
+            <button onclick="createBooking()">Confirm Booking</button>
+
+            <div id="result" class="note" style="margin-top: 10px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // CSRF helper
+      function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(";").shift();
+        return null;
+      }
+      const csrftoken = getCookie("csrftoken");
+
+      // Group services like the flyers
+      const GROUPS = [
+        {
+          title: "Knotless Braids & Senegalese Twists",
+          match: (n) => /(Knotless|Twists)/i.test(n) && !/Take Down/i.test(n),
+        },
+        { title: "Stitch Braids", match: (n) => /Stitch Braids/i.test(n) },
+        {
+          title: "Natural Hair",
+          match: (n) => /(Cornrows|Twists \(Natural\)|Single Plaits)/i.test(n),
+        },
+        { title: "Extras", match: (n) => /(Blow|Extra length|Curly Hair)/i.test(n) },
+        { title: "Take Down Service", match: (n) => /Take Down/i.test(n) },
+      ];
+
+      // Track selected slot button (UI highlight)
+      let selectedSlotButton = null;
+
+      // Load services
+      async function loadServices() {
+        const r = await fetch("/api/services/");
+        const services = await r.json();
+        document.getElementById("svc-count").textContent =
+          services.length + " services";
+
+        // Dropdown (price + duration)
+        const sel = document.getElementById("serviceSelect");
+        sel.innerHTML = "";
+        services.forEach((s) => {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          opt.textContent = `${s.name} — $${s.price} • ${s.duration_minutes} min`;
+          sel.appendChild(opt);
+        });
+
+        // Grouped catalog
+        const cat = document.getElementById("catalog");
+        cat.innerHTML = "";
+        GROUPS.forEach((g) => {
+          const items = services.filter((s) => g.match(s.name));
+          if (!items.length) return;
+          const section = document.createElement("section");
+          section.className = "category";
+          section.innerHTML = `<h3>${g.title}</h3>`;
+          items.forEach((s) => {
+            const row = document.createElement("div");
+            row.className = "svc-row";
+            row.innerHTML = `
+              <div class="svc-name">${s.name}</div>
+              <div class="svc-price">$${s.price} • ${s.duration_minutes} min</div>
+            `;
+            section.appendChild(row);
+          });
+          cat.appendChild(section);
+        });
+        if (!cat.innerHTML.trim()) {
+          cat.innerHTML = `<p class="muted">No active services right now.</p>`;
+        }
+      }
+
+      // Show available slots
+      async function checkAvailability() {
+        const serviceId = document.getElementById("serviceSelect").value;
+        const dateStr = document.getElementById("dateStr").value.trim();
+        if (!serviceId || !dateStr) {
+          document.getElementById("slots").textContent =
+            "Please choose a service and date.";
+          return;
+        }
+        const r = await fetch(
+          `/api/bookings/availability/?service=${serviceId}&date=${dateStr}`
+        );
+        const data = await r.json();
+        const slots = data.slots || [];
+        const wrap = document.getElementById("slots");
+
+        // Reset selection UI state
+        selectedSlotButton = null;
+        document.getElementById("startIso").value = "";
+        document.getElementById("prettyTime").textContent =
+          "No time selected yet.";
+
+        if (!slots.length) {
+          wrap.innerHTML = "<p>No slots for that date.</p>";
+          return;
+        }
+        wrap.innerHTML = "";
+
+        slots.forEach((s) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "slot-btn";
+          btn.textContent = new Date(s.start_time).toLocaleString();
+
+          btn.onclick = () => {
+            // Clear previous selected
+            if (selectedSlotButton && selectedSlotButton !== btn) {
+              selectedSlotButton.classList.remove("selected");
+            }
+            // Mark current as selected
+            btn.classList.add("selected");
+            selectedSlotButton = btn;
+
+            const iso = s.start_time; // keep ISO
+            document.getElementById("startIso").value = iso; // hidden field
+            document.getElementById("prettyTime").textContent =
+              "Selected: " + new Date(iso).toLocaleString();
+
+            if (s.staff_ids && s.staff_ids.length) {
+              document.getElementById("staffId").value = s.staff_ids[0];
+            }
+          };
+
+          wrap.appendChild(btn);
+        });
+      }
+
+      // Create client and booking
+      async function createBooking() {
+        const name = document.getElementById("clientName").value.trim();
+        const email = document.getElementById("clientEmail").value.trim();
+        const phone = document.getElementById("clientPhone").value.trim();
+        const notes = document.getElementById("notes").value.trim();
+
+        const service = parseInt(
+          document.getElementById("serviceSelect").value,
+          10
+        );
+        const staffRaw = document.getElementById("staffId").value.trim();
+        const staff = staffRaw ? parseInt(staffRaw, 10) : null;
+        const start_time = document.getElementById("startIso").value.trim();
+
+        if (!name || !email || !phone) {
+          document.getElementById("result").textContent =
+            "Please fill name, email, and phone.";
+          return;
+        }
+        if (!/^\d{7,15}$/.test(phone)) {
+          document.getElementById("result").textContent =
+            "Phone must be digits only, 7 to 15 digits.";
+          return;
+        }
+        if (!/^\d{4}-\d{2}-\d{2}T/.test(start_time)) {
+          document.getElementById("result").textContent =
+            "Please click a time slot first.";
+          return;
+        }
+
+        // 1) create client
+        const sc = await fetch("/api/clients/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrftoken },
+          body: JSON.stringify({ name, email, phone }),
+        });
+        const cj = await sc.json();
+        if (!sc.ok) {
+          document.getElementById("result").textContent = JSON.stringify(
+            cj,
+            null,
+            2
+          );
+          return;
+        }
+        const clientId = cj.id;
+
+        // 2) create booking
+        const payload = { client: clientId, service, staff, start_time, notes };
+        const rb = await fetch("/api/bookings/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrftoken,
+          },
+          body: JSON.stringify(payload),
+        });
+        const result = await rb.json();
+
+        if (rb.ok) {
+          // Redirect to confirmation page with summary details
+          const svcOpt =
+            document.getElementById("serviceSelect").selectedOptions[0]
+              .textContent;
+          const svcName = svcOpt.split(" — ")[0];
+          const svcPrice = (svcOpt.split(" — ")[1] || "").replace("$", "");
+
+          const url = new URL(window.location.origin + "/api/confirm");
+          url.searchParams.set("id", result.id);
+          url.searchParams.set("service", svcName);
+          url.searchParams.set("price", svcPrice);
+          url.searchParams.set("start", result.start_time);
+          url.searchParams.set("phone", phone); // so we can display phone on confirmation
+          window.location.href = url.toString();
+        } else {
+          document.getElementById("result").textContent = JSON.stringify(
+            result,
+            null,
+            2
+          );
+        }
+      }
+
+      loadServices();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Bookings Calendar — {{ month_name }} {{ year }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        --brand-teal: #2aa39a;
+        --panel-cream: #fffaf2;
+        --text-dark: #1d2b2b;
+        --border: rgba(0, 0, 0, 0.1);
+        --muted: rgba(0, 0, 0, 0.55);
+      }
+      body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: var(--text-dark); background: var(--brand-teal); }
+      .container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+      .panel { background: var(--panel-cream); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+      .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 16px; }
+      .cell { background: #fff; border: 1px solid var(--border); border-radius: 10px; min-height: 120px; padding: 8px; }
+      .day-num { font-weight: 700; margin-bottom: 6px; }
+      .booking { font-size: 0.9rem; background: #f9f9f9; border: 1px solid var(--border); border-radius: 8px; padding: 6px; margin-top: 6px; }
+      .muted { color: var(--muted); }
+      .nav a { text-decoration: none; font-weight: 600; color: #1d2b2b; background: #fff; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); margin-right: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="panel">
+        <h2>Bookings — {{ month_name }} {{ year }}</h2>
+        <div class="nav" style="margin-bottom:10px;">
+          <a href="?year={{ prev_year }}&month={{ prev_month }}">‹ Prev</a>
+          <a href="?year={{ next_year }}&month={{ next_month }}">Next ›</a>
+          <a href="/admin/">Admin</a>
+        </div>
+
+        <!-- Day-of-week header -->
+        <div class="grid">
+          <div class="cell muted">Mon</div>
+          <div class="cell muted">Tue</div>
+          <div class="cell muted">Wed</div>
+          <div class="cell muted">Thu</div>
+          <div class="cell muted">Fri</div>
+          <div class="cell muted">Sat</div>
+          <div class="cell muted">Sun</div>
+        </div>
+
+        <!-- Month grid -->
+        <div class="grid">
+          {% for cell in cells %}
+            {% if cell.blank %}
+              <div class="cell muted"></div>
+            {% else %}
+              <div class="cell">
+                <div class="day-num">{{ cell.day }}</div>
+                {% if cell.bookings %}
+                  {% for b in cell.bookings %}
+                    <div class="booking">
+                      <div><strong>{{ b.time }}</strong> — {{ b.service }}</div>
+                      <div class="muted">
+                        {{ b.client }}{% if b.staff %} · {{ b.staff }}{% endif %}
+                      </div>
+                      {% if b.status %}<div class="muted">Status: {{ b.status }}</div>{% endif %}
+                    </div>
+                  {% endfor %}
+                {% else %}
+                  <div class="muted">No bookings</div>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
