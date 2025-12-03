@@ -56,6 +56,39 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
 class ServiceViewSet(viewsets.ModelViewSet):
     queryset = Service.objects.all().order_by("id")
     serializer_class = ServiceSerializer
+    
+    @action(detail=False, methods=["get"], url_path="all")
+    def all_services(self, request):
+        """
+        Staff-only endpoint to list ALL services (including inactive ones).
+        Feature 6.0: Price Management - allows staff to see and manage all services.
+        
+        GET /api/services/all/
+        
+        Returns:
+            Response: List of all services with complete details
+        """
+        from rest_framework.permissions import IsAuthenticated
+        
+        # Check authentication
+        if not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Check staff permission
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Staff privileges required."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Return all services (not just active ones)
+        all_services = Service.objects.all().order_by("id")
+        serializer = ServiceSerializer(all_services, many=True)
+        
+        return Response(serializer.data)
 
 
 class StaffViewSet(viewsets.ModelViewSet):
