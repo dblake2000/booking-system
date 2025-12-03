@@ -7,9 +7,6 @@
 from django.contrib import admin
 from django.urls import path, include
 
-# IMPORTANT: import the view function directly from the booking app
-from booking.views_calendar import bookings_calendar
-
 urlpatterns = [
     # Staff-only calendar — MUST be before "admin/" catch-all behavior
     path("admin/bookings-calendar/", bookings_calendar, name="bookings_calendar"),
@@ -19,4 +16,9 @@ urlpatterns = [
 
     # Your API
     path("api/", include("booking.urls")),
+    path("api/staff/", include("staff.urls")),
+    path("api/reports/", include("reports.urls")),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
