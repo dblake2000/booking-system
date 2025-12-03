@@ -79,6 +79,11 @@ class Booking(models.Model):
         choices=STATUS_CHOICES,
         default="CONFIRMED",
     )
+    
+    cancellation_time = models.DateTimeField(
+        null=True,  # Can be null if not cancelled
+        blank=True
+    )
 
     def __str__(self):
         return f"{self.client.name} → {self.service.name} on {self.start_time}"

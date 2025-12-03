@@ -7,5 +7,5 @@ class Notification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     sent = models.BooleanField(default=False)
 
-    def __str__(self):
-        return f"Notification to {self.user.username} at {self.created_at}"
+def __str__(self):
+        return f"Notification to {self.user.name} at {self.created_at}"

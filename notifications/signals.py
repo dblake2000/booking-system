@@ -12,10 +12,7 @@ def send_booking_confirmation_email(sender, instance, created, **kwargs):
     """
     
     if instance.status == "confirmed":
-        # 1. CORRECT: Use client_profile to refer to the ClientProfile object
         client_profile = instance.client
-        
-        # 2. CORRECT: Use instance.start_time and client_profile.name
         booking_time_str = instance.start_time.strftime('%Y-%m-%d at %H:%M')
         
         message = (
@@ -24,19 +21,12 @@ def send_booking_confirmation_email(sender, instance, created, **kwargs):
             f"has been confirmed!"
         )
 
-        # 3. CRITICAL CORRECTION (ASSUMPTION): 
-        # The 'user' field on your Notification model must accept the ClientProfile instance.
-        # If your Notification model FK is called 'client', you must change 'user=client_profile'
-        # If the FK is to the standard Django User, this logic is incorrect entirely.
-        
-        # Assuming Notification.user is a ForeignKey to ClientProfile:
         Notification.objects.create(
             user=client_profile, 
             message=message,
             sent=True
         )
 
-        # 4. CORRECT: Use client_profile.email
         send_mail(
             subject="Booking Confirmation",
             message=message,

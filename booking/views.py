@@ -1,4 +1,4 @@
-# booking/views.py
+## booking/views.py
 #
 # Purpose:
 # - CRUD APIs for Clients, Services, Staff, Bookings, and Feedback.
@@ -11,6 +11,8 @@
 from django.utils.dateparse import parse_date
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.core.mail import send_mail # Kept for existing dependencies, though staff cancel is now signal-based
+from django.conf import settings # Needed for staff cancel return (uses EMAIL_HOST_USER)
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -26,8 +28,8 @@ from .serializers import (
     FeedbackSerializer,
 )
 from .services.booking_manager import BookingManager
-from .services.notification_service import NotificationService  # console email (FREE)
-from .services.availability_engine import AvailabilityEngine  # computes open slots
+from .services.notification_service import NotificationService 	# console email (FREE)
+from .services.availability_engine import AvailabilityEngine 	# computes open slots
 
 
 # -------------------- Permissions --------------------
@@ -92,9 +94,10 @@ class StaffViewSet(viewsets.ModelViewSet):
 class BookingViewSet(viewsets.ModelViewSet):
     """
     Endpoints:
-    - POST   /api/bookings/                   create (SRS 1.0, 6.0, 7.0)
-    - POST   /api/bookings/{id}/cancel/       cancel with 2h cutoff (SRS 3.0)
-    - GET    /api/bookings/availability/      availability (SRS 7.0)
+    - POST 	/api/bookings/ 	 	 	 	 	 create (SRS 1.0, 6.0, 7.0)
+    - POST 	/api/bookings/{id}/cancel/ 	 	 	 Staff cancel (relies on signal)
+    - POST 	/api/bookings/client_cancel/        Client self-cancel (NEW)
+    - GET 	/api/bookings/availability/ 	 	 availability (SRS 7.0)
 
     Public booking flow:
     - NO login required. Clients can create a ClientProfile (name/email) then book.
@@ -116,9 +119,9 @@ class BookingViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        client = data["client"]           # PK -> instance
+        client = data["client"] 			# PK -> instance
         service = data["service"]
-        staff = data.get("staff")         # optional
+        staff = data.get("staff") 			# optional
         start_time = data["start_time"]
         notes = data.get("notes", "")
 
@@ -147,28 +150,96 @@ class BookingViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(out.data)
         return Response(out.data, status=status.HTTP_201_CREATED, headers=headers)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         """
-        Cancel a booking (public). Respects 2-hour cutoff.
-        NOTE: if you want to restrict who can cancel later, re-add checks.
+        Staff/Admin action to cancel a specific booking.
+        The save() triggers the post_save signal which handles all notifications.
         """
-        booking = get_object_or_404(Booking, pk=pk)
+        try:
+            booking = self.get_object() # Fetches the Booking instance
+        except Exception:
+            return Response(
+                {"detail": "Booking not found."}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        # capture before cancellation (for email)
-        snapshot = {
-            "id": booking.id,
-            "client_email": booking.client.email,
-            "start_time": booking.start_time,
-        }
+        # Validation
+        if booking.status == "CANCELLED":
+            return Response(
+                {"detail": "Booking is already cancelled."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Update Model Fields
+        booking.status = "CANCELLED"
+        booking.cancellation_time = timezone.now()
+        
+        # This triggers the post_save signal in booking/signals.py which sends the necessary cancellation emails to client and admin.
+        booking.save(update_fields=['status', 'cancellation_time'])
+
+        # Return API Response
+        return Response(
+            {"detail": "Booking cancelled successfully by staff. Notifications processed by signal.", 
+             "new_status": booking.status},
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=False, methods=['post'], url_path='client_cancel')
+    def client_cancel(self, request):
+        """
+        NEW: Allows an unauthenticated client to cancel a booking by providing 
+        the Booking ID (pk) and their verified Email.
+        """
+        test_number = 2
+        booking_id = request.data.get('booking_id')
+        client_email = request.data.get('client_email')
+
+        # Input Validation
+        if not booking_id or not client_email:
+            return Response(
+                {"detail": "Both Booking ID and Email are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
-            self.manager.cancel_booking(booking, cutoff_minutes=120)
-        except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # Look up the booking by ID
+            booking = get_object_or_404(Booking, pk=booking_id)
+        except Exception:
+            return Response(
+                {"detail": "Cancellation failed. Please check your details or call the business at " 
+                           f"{test_number}."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        #Do checks to see if the provided email matches the client's email
+        if booking.client.email.lower() != client_email.lower():
+            return Response(
+                {"detail": "Cancellation failed. The provided email does not match the booking record."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        self.notifier.send_cancellation(snapshot)
-        return Response({"detail": "Booking cancelled."}, status=status.HTTP_200_OK)
+        # Status Validation
+        if booking.status in ["CANCELLED", "COMPLETED"]:
+            return Response(
+                {"detail": f"Booking #{booking_id} is already in the {booking.status} state."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        booking.status = "CANCELLED"
+        booking.cancellation_time = timezone.now()
+        booking.save(update_fields=['status', 'cancellation_time'])
+
+        # Return Success Message
+        success_message = (
+            f"Booking #{booking_id} has been successfully CANCELLED. "
+            "You will receive an email confirmation shortly. "
+            "If you did not make this cancellation or believe it was a mistake, "
+            f"please call us immediately at {test_number}."
+        )
+
+        return Response({"detail": success_message}, status=status.HTTP_200_OK)
+
 
     @action(detail=False, methods=["get"], url_path="availability")
     def availability(self, request):
