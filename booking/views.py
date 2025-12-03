@@ -6,10 +6,8 @@
 # - Console "emails" for confirmations/cancellations (FREE) (SRS 6.0, SRS 3.0).
 # - Permissions:
 #   * Service writes are staff-only (price updates, activate/deactivate).
-#   * Clients see/cancel only their own bookings; staff see all.
-#   * When a client is logged in, booking creation is forced to their profile.
+#   * Booking creation requires NO login. Public flow: create client -> create booking.
 
-from datetime import datetime
 from django.utils.dateparse import parse_date
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -19,13 +17,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
-from .models import (
-    ClientProfile,
-    Service,
-    Staff,
-    Booking,
-    Feedback,
-)
+from .models import ClientProfile, Service, Staff, Booking, Feedback
 from .serializers import (
     ClientProfileSerializer,
     ServiceSerializer,
@@ -69,8 +61,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     permission_classes = [IsStaffOrReadOnly]
 
     def get_queryset(self):
-        # Staff can see all services (active and inactive),
-        # non-staff only see active ones (catalog).
+        # Staff can see all; public sees only active
         user = getattr(self.request, "user", None)
         qs = Service.objects.all().order_by("id")
         if user and user.is_authenticated and user.is_staff:
@@ -85,7 +76,6 @@ class ServiceViewSet(viewsets.ModelViewSet):
         old_price = service.price
         instance = serializer.save()
         if "price" in serializer.validated_data and instance.price != old_price:
-            # Lazy import to avoid circulars
             from .models import PriceHistory
             PriceHistory.objects.create(
                 service=instance,
@@ -106,52 +96,31 @@ class BookingViewSet(viewsets.ModelViewSet):
     - POST   /api/bookings/{id}/cancel/       cancel with 2h cutoff (SRS 3.0)
     - GET    /api/bookings/availability/      availability (SRS 7.0)
 
-    Permissions:
-    - Staff: see all bookings, can cancel any (respecting cutoff).
-    - Client: see only own bookings, can cancel only own bookings.
+    Public booking flow:
+    - NO login required. Clients can create a ClientProfile (name/email) then book.
     """
+    queryset = Booking.objects.all().order_by("-start_time")
     serializer_class = BookingSerializer
     manager = BookingManager()
     notifier = NotificationService()
 
-    def get_queryset(self):
-        qs = Booking.objects.all().order_by("-start_time")
-        user = self.request.user
-        if user.is_authenticated and not user.is_staff:
-            # Client sees only their bookings
-            if hasattr(user, "client_profile"):
-                return qs.filter(client=user.client_profile)
-            return qs.none()
-        # Staff sees all; anonymous callers typically won’t list
-        return qs
-
     def create(self, request, *args, **kwargs):
         """
         Create a booking:
-        - If client user is logged in, force client field to their ClientProfile.
-        - Block inactive services.
-        - Send confirmation to console on success.
+        - No login required.
+        - Expects client (ClientProfile id), service id, optional staff id, start_time (ISO).
+        - Blocks inactive services.
+        - Sends confirmation (console) on success.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        client = data["client"]
+        client = data["client"]           # PK -> instance
         service = data["service"]
-        staff = data.get("staff")
+        staff = data.get("staff")         # optional
         start_time = data["start_time"]
         notes = data.get("notes", "")
-
-        # If a client user is logged in, force the booking client to that user’s profile
-        user = request.user
-        if user.is_authenticated and not user.is_staff:
-            if hasattr(user, "client_profile"):
-                client = user.client_profile
-            else:
-                return Response(
-                    {"detail": "No client profile linked to this account."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
         # Block inactive services
         if hasattr(service, "active") and not service.active:
@@ -181,17 +150,10 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         """
-        Cancel a booking:
-        - Staff can cancel any booking (respecting cutoff).
-        - Client can cancel only their own booking (respecting cutoff).
+        Cancel a booking (public). Respects 2-hour cutoff.
+        NOTE: if you want to restrict who can cancel later, re-add checks.
         """
         booking = get_object_or_404(Booking, pk=pk)
-
-        # Permission: staff OR the client who owns this booking
-        user = request.user
-        if user.is_authenticated and not user.is_staff:
-            if not hasattr(user, "client_profile") or booking.client_id != user.client_profile.id:
-                return Response({"detail": "Not allowed."}, status=status.HTTP_403_FORBIDDEN)
 
         # capture before cancellation (for email)
         snapshot = {
@@ -213,10 +175,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         """
         GET /api/bookings/availability/?service=ID&date=YYYY-MM-DD
         Also accepts inputs that include time; we trim to the date part.
-
-        Debug: prints the raw and normalized date strings to the server console.
         """
-        # 1) Read and trim
         service_id = (request.query_params.get("service") or "").strip()
         date_raw = (request.query_params.get("date") or "").strip()
 
@@ -226,7 +185,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 2) Normalize to 'YYYY-MM-DD'
+        # Normalize to 'YYYY-MM-DD'
         if "T" in date_raw:
             date_str = date_raw.split("T", 1)[0].strip()
         elif " " in date_raw:
@@ -234,16 +193,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         else:
             date_str = date_raw
 
-        # ---------------- DEBUG (safe placement) ----------------
-        print(
-            "DEBUG availability:",
-            "service_id=", repr(service_id),
-            "date_raw=", repr(date_raw),
-            "date_str=", repr(date_str),
-        )
-        # --------------------------------------------------------
-
-        # 3) Strictly validate the date
+        # Validate
         d = parse_date(date_str)
         if d is None:
             return Response(
@@ -251,10 +201,10 @@ class BookingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 4) Resolve service
+        # Resolve service
         service = get_object_or_404(Service, pk=service_id)
 
-        # 5) Convert the date to a TZ-aware day range
+        # Convert date to TZ-aware day start
         from .services.slot_utils import date_to_range
         try:
             day_start, _day_end = date_to_range(date_str)
@@ -264,12 +214,12 @@ class BookingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 6) Compute availability
+        # Compute availability
         engine = AvailabilityEngine()
         staff_qs = Staff.objects.all().order_by("id")
         data = engine.find_available_slots(service, day_start, staff_qs)
 
-        # 7) Filter out past slots (today)
+        # Filter out past slots (today)
         tz = timezone.get_current_timezone()
         now = timezone.now()
         filtered = []

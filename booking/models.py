@@ -4,13 +4,16 @@ from django.contrib.auth.models import User
 
 # --- CLIENT MODEL ---
 class ClientProfile(models.Model):
-    """
-    Extends Django's User for clients.
-    Each client user has exactly one ClientProfile.
-    """
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="client_profile")
+    # User is optional now (no login required for booking)
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="client_profile",
+        null=True,
+        blank=True,
+    )
     name = models.CharField(max_length=200)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()  # remove unique=True to allow duplicates
 
     def __str__(self):
         return self.name
