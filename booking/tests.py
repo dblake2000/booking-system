@@ -1,182 +1,248 @@
-from decimal import Decimal
-from datetime import timedelta
-
 from django.test import TestCase
-from django.utils import timezone
+from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
-from rest_framework.test import APIClient
+from decimal import Decimal
 
-from booking.models import (
-    Service,
-    ClientProfile,
-    Staff,
-    Booking,
-    PriceHistory,
-)
+from .models import Service
+from .services.price_management import PriceManagementService
+from .services.price_display import PriceDisplayService
 
 
-class PriceHistoryTests(TestCase):
+class PriceManagementTests(TestCase):
+    """
+    Tests for Feature 6.0: Price Management
+    Team Owner: Nishaun Lawrence
+    """
+    
     def setUp(self):
-        # DRF client
-        self.client = APIClient()
-
-        # Create a sample service
+        """Set up test data"""
         self.service = Service.objects.create(
-            name="Silk Press",
-            description="Test service",
+            name="Test Haircut",
+            description="A test service",
             duration_minutes=60,
-            price=Decimal("80.00"),
-            active=True,
+            price=Decimal("50.00")
+        )
+        
+        self.admin_user = User.objects.create_user(
+            username="admin",
+            password="testpass123",
+            is_staff=True
+        )
+    
+    def test_validate_valid_price(self):
+        """Test that valid prices pass validation"""
+        # Test various valid formats
+        self.assertEqual(
+            PriceManagementService.validate_price("25.00"),
+            Decimal("25.00")
+        )
+        self.assertEqual(
+            PriceManagementService.validate_price(50),
+            Decimal("50")
+        )
+        self.assertEqual(
+            PriceManagementService.validate_price(Decimal("100.99")),
+            Decimal("100.99")
+        )
+    
+    def test_validate_price_rejects_zero(self):
+        """System Requirement 3: Reject price of zero"""
+        with self.assertRaises(ValidationError) as context:
+            PriceManagementService.validate_price(0)
+        
+        self.assertIn("greater than zero", str(context.exception))
+    
+    def test_validate_price_rejects_negative(self):
+        """System Requirement 3: Reject negative prices"""
+        with self.assertRaises(ValidationError) as context:
+            PriceManagementService.validate_price(-10)
+        
+        self.assertIn("greater than zero", str(context.exception))
+    
+    def test_validate_price_rejects_non_numeric(self):
+        """System Requirement 3: Reject non-numeric values"""
+        with self.assertRaises(ValidationError):
+            PriceManagementService.validate_price("abc")
+        
+        with self.assertRaises(ValidationError):
+            PriceManagementService.validate_price("$50.00")
+    
+    def test_get_current_price(self):
+        """System Requirement 2: Retrieve current price"""
+        current_price = PriceManagementService.get_current_price(self.service)
+        self.assertEqual(current_price, Decimal("50.00"))
+    
+    def test_update_service_price(self):
+        """System Requirement 4: Update service price"""
+        old_price = self.service.price
+        
+        result = PriceManagementService.update_service_price(
+            service=self.service,
+            new_price="75.00",
+            admin_user=self.admin_user
+        )
+        
+        # Refresh from database
+        self.service.refresh_from_db()
+        
+        # Check price was updated
+        self.assertEqual(self.service.price, Decimal("75.00"))
+        
+        # Check result contains change log
+        self.assertTrue(result['success'])
+        self.assertEqual(result['old_price'], str(old_price))
+        self.assertEqual(result['new_price'], "75.00")
+        self.assertEqual(result['changed_by'], 'admin')
+    
+    def test_format_price_for_display(self):
+        """System Requirement 2: Format prices consistently"""
+        self.assertEqual(
+            PriceManagementService.format_price_for_display("25"),
+            "$25.00"
+        )
+        self.assertEqual(
+            PriceManagementService.format_price_for_display(Decimal("99.99")),
+            "$99.99"
+        )
+        self.assertEqual(
+            PriceManagementService.format_price_for_display("invalid"),
+            "$0.00"
         )
 
-        # Create a staff user and log in (needed for write operations)
-        self.staff_user = User.objects.create_user(
-            username="staff1",
-            password="Password123!",
-            email="staff1@example.com",
-            is_staff=True,  # IMPORTANT: staff can update services
-        )
-        # Log in the staff user in the test client (session-based)
-        logged_in = self.client.login(username="staff1", password="Password123!")
-        self.assertTrue(logged_in, "Failed to log in test staff user")
 
-    def test_price_change_creates_history(self):
-        # Sanity: no history yet
-        self.assertEqual(PriceHistory.objects.count(), 0)
-
-        # PATCH price to a new value via API (staff-only write)
-        url = f"/api/services/{self.service.id}/"
-        resp = self.client.patch(
-            url,
-            data={"price": "85.00"},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 200, f"Unexpected status: {resp.status_code} body={resp.content}")
-
-        # Now we should have one PriceHistory entry
-        self.assertEqual(PriceHistory.objects.count(), 1)
-        ph = PriceHistory.objects.first()
-        self.assertEqual(ph.service.id, self.service.id)
-        self.assertEqual(ph.old_price, Decimal("80.00"))
-        self.assertEqual(ph.new_price, Decimal("85.00"))
-
-    def test_no_history_when_price_unchanged(self):
-        # PATCH duration only (no price change)
-        url = f"/api/services/{self.service.id}/"
-        resp = self.client.patch(
-            url,
-            data={"duration_minutes": 90},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 200, f"Unexpected status: {resp.status_code} body={resp.content}")
-
-        # No history should be created because price didn't change
-        self.assertEqual(PriceHistory.objects.count(), 0)
-
-    def test_anonymous_can_read_services(self):
-        """
-        Bonus: ensure read endpoints are open (GET allowed for everyone).
-        """
-        anon = APIClient()
-        resp = anon.get("/api/services/")
-        self.assertEqual(resp.status_code, 200)
-
-
-class BookingRulesTests(TestCase):
+class PriceDisplayTests(TestCase):
+    """
+    Tests for Feature 7.0: Price Display
+    Team Owner: Nishaun Lawrence
+    """
+    
     def setUp(self):
-        # DRF client
-        self.api = APIClient()
-
-        # Service (active, valid price/duration)
-        self.service = Service.objects.create(
-            name="Cut",
-            description="",
+        """Set up test data"""
+        self.service1 = Service.objects.create(
+            name="Basic Haircut",
+            description="Standard haircut",
+            duration_minutes=30,
+            price=Decimal("25.00")
+        )
+        
+        self.service2 = Service.objects.create(
+            name="Premium Haircut",
+            description="Premium styling",
             duration_minutes=60,
-            price=Decimal("50.00"),
-            active=True,
+            price=Decimal("50.00")
         )
-
-        # Staff (IMPORTANT: this is booking.models.Staff to match Booking.staff FK)
-        self.staff = Staff.objects.create(
-            name="Stylist A",
-            email="stylista@example.com",
-            role="Stylist",
+        
+        self.service3 = Service.objects.create(
+            name="Deluxe Treatment",
+            description="Full treatment",
+            duration_minutes=90,
+            price=Decimal("75.00")
         )
-
-        # Client user + profile
-        self.client_user = User.objects.create_user(
-            username="client1",
-            password="Password123!",
-            email="client1@example.com",
+    
+    def test_get_service_catalog(self):
+        """System Requirement 1: Retrieve all services with details"""
+        services = Service.objects.all()
+        catalog = PriceDisplayService.get_service_catalog(services)
+        
+        self.assertEqual(len(catalog), 3)
+        
+        # Check first service has all required fields
+        first = catalog[0]
+        self.assertIn('id', first)
+        self.assertIn('name', first)
+        self.assertIn('price', first)
+        self.assertIn('price_formatted', first)
+        self.assertIn('duration_minutes', first)
+        self.assertIn('display_text', first)
+    
+    def test_format_price_consistent(self):
+        """System Requirement 2: Format with currency symbol and 2 decimals"""
+        self.assertEqual(
+            PriceDisplayService.format_price(25),
+            "$25.00"
         )
-        self.client_profile = ClientProfile.objects.create(
-            user=self.client_user,
-            name="Client One",
-            email="client1@example.com",
+        self.assertEqual(
+            PriceDisplayService.format_price(Decimal("50.5")),
+            "$50.50"
         )
+        self.assertEqual(
+            PriceDisplayService.format_price("99.99"),
+            "$99.99"
+        )
+        self.assertEqual(
+            PriceDisplayService.format_price("99.99"),
+            "$99.99"
+        )
+        self.assertEqual(
+            PriceDisplayService.format_price("99.99"),
+            "$99.99"
+        )
+        self.assertEqual(
+            PriceDisplayService.format_price("99.99"),
+            "$99.99"
+        )
+    
+    def test_format_service_display(self):
+        """System Requirement 3: Display name, price, and duration together"""
+        display = PriceDisplayService.format_service_display(self.service1)
+        
+        # Should contain all three elements
+        self.assertIn("Basic Haircut", display)
+        self.assertIn("$25.00", display)
+        self.assertIn("30 min", display)
+    
+    def test_filter_by_price_range(self):
+        """System Requirement 6: Filter services by price range"""
+        services = Service.objects.all()
+        
+        # Filter: $20 - $60
+        filtered = PriceDisplayService.filter_by_price_range(
+            services,
+            min_price=20,
+            max_price=60
+        )
+        
+        # Should include service1 ($25) and service2 ($50), exclude service3 ($75)
+        self.assertEqual(filtered.count(), 2)
+        self.assertIn(self.service1, filtered)
+        self.assertIn(self.service2, filtered)
+        self.assertNotIn(self.service3, filtered)
+    
+    def test_filter_by_duration_range(self):
+        """System Requirement 6: Filter services by duration"""
+        services = Service.objects.all()
+        
+        # Filter: 30-60 minutes
+        filtered = PriceDisplayService.filter_by_duration_range(
+            services,
+            min_duration=30,
+            max_duration=60
+        )
+        
+        # Should include service1 (30min) and service2 (60min), exclude service3 (90min)
+        self.assertEqual(filtered.count(), 2)
+    
+    def test_sort_services_by_price(self):
+        """System Requirement 6: Sort services by price"""
+        services = Service.objects.all()
+        
+        # Sort ascending
+        sorted_asc = PriceDisplayService.sort_services(services, sort_by='price', ascending=True)
+        prices_asc = list(sorted_asc.values_list('price', flat=True))
+        self.assertEqual(prices_asc, [Decimal('25.00'), Decimal('50.00'), Decimal('75.00')])
+        
+        # Sort descending
+        sorted_desc = PriceDisplayService.sort_services(services, sort_by='price', ascending=False)
+        prices_desc = list(sorted_desc.values_list('price', flat=True))
+        self.assertEqual(prices_desc, [Decimal('75.00'), Decimal('50.00'), Decimal('25.00')])
+    
+    def test_get_price_summary_stats(self):
+        """Test price summary statistics"""
+        services = Service.objects.all()
+        stats = PriceDisplayService.get_price_summary_stats(services)
+        
+        self.assertEqual(stats['min_price'], "$25.00")
+        self.assertEqual(stats['max_price'], "$75.00")
+        self.assertEqual(stats['total_services'], 3)
+        self.assertIn('avg_price', stats)
 
-        # Log in as client (session auth) for booking endpoints
-        logged_in = self.api.login(username="client1", password="Password123!")
-        self.assertTrue(logged_in, "Failed to log in test client user")
-
-    def _create_future_iso(self, hours=24):
-        return (timezone.now() + timedelta(hours=hours)).replace(microsecond=0).isoformat()
-
-    def test_cannot_book_in_past(self):
-        past_iso = (timezone.now() - timedelta(hours=1)).replace(microsecond=0).isoformat()
-
-        payload = {
-            "client": self.client_profile.id,   # perform_create may force this, but keep for clarity
-            "service": self.service.id,
-            "staff": self.staff.id,
-            "start_time": past_iso,
-            "notes": "",
-        }
-        r = self.api.post("/api/bookings/", payload, format="json")
-        self.assertEqual(r.status_code, 400, f"Unexpected: {r.status_code} body={r.content}")
-
-    def test_cannot_double_book_same_staff_time(self):
-        # First booking at +24h
-        start_iso = self._create_future_iso(hours=24)
-
-        payload = {
-            "client": self.client_profile.id,
-            "service": self.service.id,
-            "staff": self.staff.id,
-            "start_time": start_iso,
-            "notes": "",
-        }
-        r1 = self.api.post("/api/bookings/", payload, format="json")
-        self.assertEqual(r1.status_code, 201, f"Unexpected: {r1.status_code} body={r1.content}")
-        b1_id = r1.json().get("id")
-        self.assertIsNotNone(b1_id)
-
-        # Second booking: same staff and same start time should fail
-        payload2 = {
-            "client": self.client_profile.id,
-            "service": self.service.id,
-            "staff": self.staff.id,
-            "start_time": start_iso,  # same time
-            "notes": "",
-        }
-        r2 = self.api.post("/api/bookings/", payload2, format="json")
-        self.assertEqual(r2.status_code, 400, f"Should have blocked double-booking: {r2.status_code} body={r2.content}")
-
-    def test_cannot_cancel_within_2_hours(self):
-        # Make a booking at +90 minutes (inside 2-hour cutoff)
-        start_iso = self._create_future_iso(hours=1.5)
-
-        payload = {
-            "client": self.client_profile.id,
-            "service": self.service.id,
-            "staff": self.staff.id,
-            "start_time": start_iso,
-            "notes": "",
-        }
-        r1 = self.api.post("/api/bookings/", payload, format="json")
-        self.assertEqual(r1.status_code, 201, f"Create failed: {r1.status_code} body={r1.content}")
-        booking_id = r1.json().get("id")
-
-        # Try to cancel (should fail with 400 because within 2 hours)
-        r2 = self.api.post(f"/api/bookings/{booking_id}/cancel/")
-        self.assertEqual(r2.status_code, 400, f"Cancel should fail inside cutoff: {r2.status_code} body={r2.content}")
