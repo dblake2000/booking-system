@@ -14,7 +14,7 @@ class ClientProfile(models.Model):
     )
     name = models.CharField(max_length=200)
     email = models.EmailField()  # remove unique=True to allow duplicates
-
+    phone = models.CharField(max_length=20)
     def __str__(self):
         return self.name
 

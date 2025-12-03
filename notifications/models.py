@@ -1,5 +1,5 @@
+# notifications/models.py
 from django.db import models
-from booking.models import ClientProfile 
 
 class Notification(models.Model):
     user = models.ForeignKey(ClientProfile, on_delete=models.CASCADE)

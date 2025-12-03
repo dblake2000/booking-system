@@ -1,7 +1,7 @@
 ## booking/views.py
 #
 # Purpose:
-# - CRUD APIs for Clients, Services, Staff, Bookings, and Feedback.
+# - CRUD APIs for Clients, Services, Staff, and Bookings.
 # - Availability endpoint (SRS 7.0) with robust date parsing.
 # - Console "emails" for confirmations/cancellations (FREE) (SRS 6.0, SRS 3.0).
 # - Permissions:
@@ -16,36 +16,46 @@ from django.conf import settings # Needed for staff cancel return (uses EMAIL_HO
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
-from .models import ClientProfile, Service, Staff, Booking, Feedback
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from .models import ClientProfile, Service, Staff, Booking
 from .serializers import (
     ClientProfileSerializer,
     ServiceSerializer,
     StaffSerializer,
     BookingSerializer,
-    FeedbackSerializer,
 )
+
 from .services.booking_manager import BookingManager
 from .services.notification_service import NotificationService 	# console email (FREE)
 from .services.availability_engine import AvailabilityEngine 	# computes open slots
 
 
-# -------------------- Permissions --------------------
+# ---- Helpers (local) ---------------------------------------------------------
 
-class IsStaffOrReadOnly(BasePermission):
+def _extract_date_only(date_str: str) -> str:
     """
-    Read: anyone
-    Write: staff only
+    Accept common formats and return just the YYYY-MM-DD part.
+
+    Accepts:
+      - 'YYYY-MM-DD'
+      - 'YYYY-MM-DDTHH:MM' or 'YYYY-MM-DDTHH:MM:SS' (optional 'Z' or offset)
+      - 'YYYY-MM-DD HH:MM' (space)
     """
-    def has_permission(self, request, view):
-        if request.method in ("GET", "HEAD", "OPTIONS"):
-            return True
-        return bool(request.user and request.user.is_staff)
+    if not date_str:
+        return date_str
+    # Split on 'T' or space to drop any time part
+    if "T" in date_str:
+        date_str = date_str.split("T", 1)[0]
+    if " " in date_str:
+        date_str = date_str.split(" ", 1)[0]
+    return date_str
 
 
-# -------------------- ViewSets --------------------
+# ---- ViewSets ----------------------------------------------------------------
 
 class ClientProfileViewSet(viewsets.ModelViewSet):
     queryset = ClientProfile.objects.all().order_by("id")
@@ -53,37 +63,41 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
-    """
-    Service catalog:
-    - Anyone can list active services.
-    - Only staff can create/update/delete services (IsStaffOrReadOnly).
-    - Price updates are logged into PriceHistory in perform_update.
-    """
+    queryset = Service.objects.all().order_by("id")
     serializer_class = ServiceSerializer
-    permission_classes = [IsStaffOrReadOnly]
-
-    def get_queryset(self):
-        # Staff can see all; public sees only active
-        user = getattr(self.request, "user", None)
-        qs = Service.objects.all().order_by("id")
-        if user and user.is_authenticated and user.is_staff:
-            return qs
-        return qs.filter(active=True)
-
-    def perform_update(self, serializer):
+    
+    @action(detail=False, methods=["get"], url_path="all")
+    def all_services(self, request):
         """
-        Log price changes when a service is updated (SRS 5.0 price management).
+        Staff-only endpoint to list ALL services (including inactive ones).
+        Feature 6.0: Price Management - allows staff to see and manage all services.
+        
+        GET /api/services/all/
+        
+        Returns:
+            Response: List of all services with complete details
         """
-        service = self.get_object()
-        old_price = service.price
-        instance = serializer.save()
-        if "price" in serializer.validated_data and instance.price != old_price:
-            from .models import PriceHistory
-            PriceHistory.objects.create(
-                service=instance,
-                old_price=old_price,
-                new_price=instance.price,
+        from rest_framework.permissions import IsAuthenticated
+        
+        # Check authentication
+        if not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED
             )
+        
+        # Check staff permission
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Staff privileges required."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Return all services (not just active ones)
+        all_services = Service.objects.all().order_by("id")
+        serializer = ServiceSerializer(all_services, many=True)
+        
+        return Response(serializer.data)
 
 
 class StaffViewSet(viewsets.ModelViewSet):
@@ -104,17 +118,11 @@ class BookingViewSet(viewsets.ModelViewSet):
     """
     queryset = Booking.objects.all().order_by("-start_time")
     serializer_class = BookingSerializer
+
     manager = BookingManager()
     notifier = NotificationService()
 
     def create(self, request, *args, **kwargs):
-        """
-        Create a booking:
-        - No login required.
-        - Expects client (ClientProfile id), service id, optional staff id, start_time (ISO).
-        - Blocks inactive services.
-        - Sends confirmation (console) on success.
-        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -124,13 +132,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         staff = data.get("staff") 			# optional
         start_time = data["start_time"]
         notes = data.get("notes", "")
-
-        # Block inactive services
-        if hasattr(service, "active") and not service.active:
-            return Response(
-                {"detail": "This service is not currently available."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         try:
             booking = self.manager.create_booking(
@@ -143,7 +144,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # SRS 6.0: confirmation to console (FREE)
+        # SRS 6.0: confirmation to console
         self.notifier.send_confirmation(booking)
 
         out = BookingSerializer(booking)
@@ -201,6 +202,14 @@ class BookingViewSet(viewsets.ModelViewSet):
                 {"detail": "Both Booking ID and Email are required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        booking = get_object_or_404(Booking, pk=pk)
+
+        # capture before delete
+        snapshot = {
+            "id": booking.id,
+            "client_email": booking.client.email,
+            "start_time": booking.start_time,
+        }
 
         try:
             # Look up the booking by ID
@@ -245,10 +254,12 @@ class BookingViewSet(viewsets.ModelViewSet):
     def availability(self, request):
         """
         GET /api/bookings/availability/?service=ID&date=YYYY-MM-DD
-        Also accepts inputs that include time; we trim to the date part.
+        Also accepts:
+          - date=YYYY-MM-DDTHH:MM[:SS][Z]
+          - date=YYYY-MM-DD HH:MM[:SS]
         """
-        service_id = (request.query_params.get("service") or "").strip()
-        date_raw = (request.query_params.get("date") or "").strip()
+        service_id = request.query_params.get("service")
+        date_raw = request.query_params.get("date")
 
         if not service_id or not date_raw:
             return Response(
@@ -256,26 +267,11 @@ class BookingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Normalize to 'YYYY-MM-DD'
-        if "T" in date_raw:
-            date_str = date_raw.split("T", 1)[0].strip()
-        elif " " in date_raw:
-            date_str = date_raw.split(" ", 1)[0].strip()
-        else:
-            date_str = date_raw
+        # Be forgiving with date formats
+        date_str = _extract_date_only(date_raw)
 
-        # Validate
-        d = parse_date(date_str)
-        if d is None:
-            return Response(
-                {"detail": "Invalid date format. Use YYYY-MM-DD."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Resolve service
         service = get_object_or_404(Service, pk=service_id)
 
-        # Convert date to TZ-aware day start
         from .services.slot_utils import date_to_range
         try:
             day_start, _day_end = date_to_range(date_str)
@@ -285,16 +281,17 @@ class BookingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Compute availability
         engine = AvailabilityEngine()
         staff_qs = Staff.objects.all().order_by("id")
+
         data = engine.find_available_slots(service, day_start, staff_qs)
 
-        # Filter out past slots (today)
+        # Filter out past slots if querying today
         tz = timezone.get_current_timezone()
         now = timezone.now()
         filtered = []
         for s in data["slots"]:
+            # robust parse for ISO; handle naive by localizing
             start_dt = timezone.datetime.fromisoformat(s["start_time"])
             if start_dt.tzinfo is None:
                 start_dt = tz.localize(start_dt)
@@ -304,8 +301,3 @@ class BookingViewSet(viewsets.ModelViewSet):
                 filtered.append(s)
 
         return Response({"slots": filtered})
-
-
-class FeedbackViewSet(viewsets.ModelViewSet):
-    queryset = Feedback.objects.all().order_by("-created_at")
-    serializer_class = FeedbackSerializer
