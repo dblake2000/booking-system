@@ -6,5 +6,5 @@ class NotificationsConfig(AppConfig):
     name = 'notifications'
 
     def ready(self):
-        # Import signal handlers so Django registers them at startup
+        # Register signal handlers at app startup
         import notifications.signals  # noqa: F401

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Cancel Booking — Hair by Lasheka</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Brand fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@300;400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* =========================
+         Theme + layout
+         ========================= */
+      :root {
+        --brand-teal: #2aa39a;
+        --panel-cream: #fffaf2;
+        --text-dark: #1d2b2b;
+        --accent-gold: #f6cf7a;
+        --muted: rgba(0, 0, 0, 0.55);
+        --border: rgba(0, 0, 0, 0.1);
+
+        --success-bg: #ecfdf5;     /* green-50 */
+        --success-border: #10b981; /* green-500 */
+        --success-text: #064e3b;   /* green-900 */
+
+        --error-bg: #fef2f2;       /* red-50 */
+        --error-border: #ef4444;   /* red-500 */
+        --error-text: #7f1d1d;     /* red-900 */
+      }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: var(--text-dark);
+        background: var(--brand-teal);
+      }
+      h1 {
+        font-family: "Great Vibes", cursive;
+        font-size: 42px;
+        margin: 18px 0 0;
+        color: #ffffff;
+        text-align: center;
+      }
+      .sub {
+        text-align: center;
+        color: #ffffffcc;
+        margin-bottom: 12px;
+      }
+      .container {
+        max-width: 760px;
+        margin: 0 auto 28px;
+        padding: 0 16px;
+      }
+      .panel {
+        background: var(--panel-cream);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        box-shadow: 0 12px 24px rgba(0,0,0,0.06);
+        padding: 20px;
+      }
+
+      /* =========================
+         Prominent status area
+         - Hidden by default
+         - We toggle .is-success or .is-error
+         ========================= */
+      .status-wrap {
+        max-width: 760px;
+        margin: 16px auto;
+        padding: 0 16px;
+      }
+      .status-banner {
+        display: none;                  /* show via JS after submit */
+        border: 2px solid transparent;
+        border-radius: 14px;
+        padding: 16px;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.5;
+      }
+      .status-banner.is-success {
+        display: block;
+        background: var(--success-bg);
+        border-color: var(--success-border);
+        color: var(--success-text);
+      }
+      .status-banner.is-error {
+        display: block;
+        background: var(--error-bg);
+        border-color: var(--error-border);
+        color: var(--error-text);
+      }
+      .status-banner small {
+        display: block;
+        font-weight: 600;
+        opacity: 0.85;
+        margin-top: 6px;
+      }
+
+      /* =========================
+         Form elements + buttons
+         ========================= */
+      label {
+        display: block;
+        font-weight: 800;
+        margin-top: 10px;
+      }
+      input, textarea, button {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        margin-top: 6px;
+        font-size: 1rem;
+      }
+      textarea { resize: vertical; }
+      .btn {
+        background: var(--accent-gold);
+        color: #3b2f02;
+        font-weight: 800;
+        cursor: pointer;
+        transition: transform 0.05s ease, box-shadow 0.2s;
+        margin-top: 14px;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px rgba(0,0,0,0.15);
+      }
+      .note { color: var(--muted); margin-top: 6px; }
+      .row { display: flex; justify-content: space-between; margin-top: 10px; gap: 8px; }
+      .row a {
+        flex: 1;
+        text-align: center;
+        text-decoration: none;
+        color: #1d2b2b;
+        background: #fff;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Brand header -->
+    <h1>Hair by Lasheka</h1>
+    <div class="sub">We’re sad to see you go — but let’s make it simple.</div>
+
+    <!-- STATUS AREA (centered + prominent)
+         - We toggle visibility and color in JS based on server response -->
+    <div class="status-wrap">
+      <div id="statusBanner" class="status-banner" role="alert" aria-live="polite"></div>
+    </div>
+
+    <!-- Form panel -->
+    <div class="container">
+      <div class="panel">
+        <h2>Cancel your booking</h2>
+        <p class="note">
+          Enter the details attached to your booking so we can find it.
+          All fields are required. Phone accepts digits only.
+        </p>
+
+        <label for="booking_id">Booking ID</label>
+        <input id="booking_id" placeholder="e.g., 27" />
+
+        <label for="name">Name (as used when booking)</label>
+        <input id="name" placeholder="e.g., Jane Doe" />
+
+        <label for="email">Email (used on booking)</label>
+        <input id="email" placeholder="jane@example.com" />
+
+        <label for="phone">Phone (digits only)</label>
+        <input id="phone" placeholder="8761234567" />
+        <div id="phonePretty" class="note"></div>
+
+        <label for="reason">Why are you cancelling? (optional)</label>
+        <textarea id="reason" rows="3" placeholder="Optional: let us know why…"></textarea>
+
+        <button class="btn" onclick="confirmCancel()">Confirm Cancellation</button>
+
+        <div class="row">
+          <a href="/api/demo/booking">Back to Booking</a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // =========================
+      // CSRF helper: read csrftoken from cookie
+      // We must send this for POSTs to pass Django's CSRF middleware.
+      // =========================
+      function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(";").shift();
+        return null;
+      }
+      const csrftoken = getCookie("csrftoken");
+
+      // =========================
+      // Readable phone preview (digits-only input)
+      // =========================
+      const phoneInput = document.getElementById("phone");
+      const phonePretty = document.getElementById("phonePretty");
+
+      function formatJA(num) {
+        const s = num.replace(/\D/g, "");
+        if (s.length >= 10) return `(${s.slice(0,3)}) ${s.slice(3,6)}-${s.slice(6,10)}${s.length>10?"…":""}`;
+        if (s.length >= 7) return `(${s.slice(0,3)}) ${s.slice(3,6)}-${s.slice(6)}`;
+        if (s.length >= 3) return `(${s.slice(0,3)}) ${s.slice(3)}`;
+        return s;
+      }
+
+      phoneInput.addEventListener("input", () => {
+        const digits = phoneInput.value.replace(/\D/g, "");
+        phoneInput.value = digits;
+        phonePretty.textContent = digits ? "Entered: " + formatJA(digits) : "";
+      });
+
+      // =========================
+      // DOM refs for status banner
+      // =========================
+      const statusBanner = document.getElementById("statusBanner");
+      function showStatus(message, type) {
+        // type: "success" | "error"
+        statusBanner.textContent = "";         // clear previous content
+        statusBanner.className = "status-banner"; // reset classes
+        if (type === "success") {
+          statusBanner.classList.add("is-success");
+          statusBanner.textContent = message;
+        } else {
+          statusBanner.classList.add("is-error");
+          // For errors, include the retry/help line prominently under the main message
+          const strongLine = document.createElement("div");
+          strongLine.textContent = message;
+
+          const help = document.createElement("small");
+          help.textContent = "Try again or WhatsApp us at +1 (876) 555‑1234.";
+
+          statusBanner.appendChild(strongLine);
+          statusBanner.appendChild(help);
+        }
+        // Smooth scroll to make the banner obvious
+        statusBanner.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
+      // =========================
+      // Submit handler (with hair-friendly confirm)
+      // =========================
+      async function confirmCancel() {
+        const ok = confirm(
+          "Are you sure you want to cancel?\nWe’ll miss styling your crown — but we understand! 💇🏽♀️"
+        );
+        if (!ok) return;
+
+        const booking_id = (document.getElementById("booking_id").value || "").trim();
+        const name = (document.getElementById("name").value || "").trim();
+        const email = (document.getElementById("email").value || "").trim();
+        const phone = (document.getElementById("phone").value || "").trim();
+        const reason = (document.getElementById("reason").value || "").trim();
+
+        // Browser-side validation (server validates again)
+        if (!booking_id || !name || !email || !phone) {
+          showStatus("Please fill Booking ID, Name, Email, and Phone.", "error");
+          return;
+        }
+        if (!/^\d+$/.test(phone)) {
+          showStatus("Phone must contain digits only.", "error");
+          return;
+        }
+
+        try {
+          const form = new FormData();
+          form.append("booking_id", booking_id);
+          form.append("name", name);
+          form.append("email", email);
+          form.append("phone", phone);
+          form.append("reason", reason);
+
+          // POST to our non-API path, with CSRF
+          const r = await fetch("/bookings/cancel/submit/", {
+            method: "POST",
+            headers: { "X-CSRFToken": csrftoken }, // critical for Django CSRF
+            body: form,
+            credentials: "same-origin",            // include cookies
+          });
+
+          const data = await r.json().catch(() => ({}));
+          if (r.ok && data.ok) {
+            showStatus(
+              "Your booking has been cancelled. A confirmation email has been sent.",
+              "success"
+            );
+          } else {
+            // Show server-provided message if available
+            showStatus(
+              (data && data.message) ||
+                "Could not cancel this booking at the moment.",
+              "error"
+            );
+          }
+        } catch (e) {
+          showStatus(
+            "Network error. Please try again.",
+            "error"
+          );
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -1,3 +1,4 @@
+# booking/admin.py
 from django.contrib import admin
 from .models import Service, ClientProfile, Staff, Booking, PriceHistory, Feedback
 
@@ -6,8 +7,7 @@ class ServiceAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "price", "duration_minutes", "active")
     list_filter = ("active",)
     search_fields = ("name",)
-    list_editable = ("price", "duration_minutes", "active")  # allow inline toggle
-    # If inline edit gives errors (due to validation), remove list_editable and edit in the form page instead.
+    list_editable = ("price", "duration_minutes", "active")
 
 @admin.register(ClientProfile)
 class ClientProfileAdmin(admin.ModelAdmin):

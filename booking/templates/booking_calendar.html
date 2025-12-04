@@ -4,66 +4,245 @@
     <meta charset="utf-8" />
     <title>Bookings Calendar — {{ month_name }} {{ year }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Typography for a consistent brand feel -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap"
+      rel="stylesheet"
+    />
+
     <style>
+      /* Color system aligned with the booking UI */
       :root {
         --brand-teal: #2aa39a;
         --panel-cream: #fffaf2;
         --text-dark: #1d2b2b;
         --border: rgba(0, 0, 0, 0.1);
         --muted: rgba(0, 0, 0, 0.55);
+        --accent-gold: #f6cf7a;
+        --badge-green: #10b981; /* For CONFIRMED */
+        --badge-red: #ef4444; /* For CANCELLED (we exclude them, but kept for future) */
+        --badge-gray: #6b7280; /* For other future statuses */
       }
-      body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: var(--text-dark); background: var(--brand-teal); }
-      .container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-      .panel { background: var(--panel-cream); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-      .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 16px; }
-      .cell { background: #fff; border: 1px solid var(--border); border-radius: 10px; min-height: 120px; padding: 8px; }
-      .day-num { font-weight: 700; margin-bottom: 6px; }
-      .booking { font-size: 0.9rem; background: #f9f9f9; border: 1px solid var(--border); border-radius: 8px; padding: 6px; margin-top: 6px; }
-      .muted { color: var(--muted); }
-      .nav a { text-decoration: none; font-weight: 600; color: #1d2b2b; background: #fff; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); margin-right: 6px; }
+
+      /* Basic layout */
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: var(--text-dark);
+        background: var(--brand-teal);
+      }
+      .container {
+        max-width: 1100px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      .panel {
+        background: var(--panel-cream);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 10px 18px rgba(0, 0, 0, 0.06);
+        padding: 16px;
+      }
+
+      /* Header with navigation */
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .title {
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin: 0;
+        color: #0a3d3d;
+      }
+      .nav a,
+      .back a {
+        text-decoration: none;
+        font-weight: 700;
+        color: #1d2b2b;
+        background: #fff;
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        display: inline-block;
+      }
+
+      /* Grid: days of week + month days */
+      .grid-dow {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .grid-days {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .dow {
+        text-align: center;
+        font-weight: 800;
+        color: #0b3737;
+        background: #ffffffb5;
+        border-radius: 8px;
+        padding: 8px;
+        border: 1px solid var(--border);
+      }
+
+      /* Day cell */
+      .cell {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        min-height: 130px;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .cell.blank {
+        background: #ffffffa6;
+      }
+      .day-num {
+        font-weight: 800;
+        margin-bottom: 4px;
+        color: #0b3737;
+      }
+
+      /* Booking card inside each day */
+      .booking {
+        font-size: 0.92rem;
+        background: #f9fafb;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px;
+        display: grid;
+        grid-template-columns: auto max-content;
+        gap: 6px 10px;
+        align-items: center;
+      }
+      .booking .info {
+        grid-column: 1 / span 1;
+      }
+      .booking .time {
+        font-weight: 800;
+      }
+      .booking .meta {
+        color: var(--muted);
+      }
+
+      /* Status badge (CONFIRMED, CANCELLED, etc.) */
+      .badge {
+        grid-column: 2 / span 1;
+        justify-self: end;
+        font-size: 0.75rem;
+        font-weight: 800;
+        padding: 2px 8px;
+        border-radius: 999px;
+        color: white;
+      }
+      .badge.confirmed {
+        background: var(--badge-green);
+      }
+      .badge.cancelled {
+        background: var(--badge-red);
+      }
+      .badge.other {
+        background: var(--badge-gray);
+      }
+
+      /* Responsive */
+      @media (max-width: 980px) {
+        .grid-dow,
+        .grid-days {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
     </style>
   </head>
+
   <body>
     <div class="container">
       <div class="panel">
-        <h2>Bookings — {{ month_name }} {{ year }}</h2>
-        <div class="nav" style="margin-bottom:10px;">
-          <a href="?year={{ prev_year }}&month={{ prev_month }}">‹ Prev</a>
-          <a href="?year={{ next_year }}&month={{ next_month }}">Next ›</a>
-          <a href="/admin/">Admin</a>
+        <!-- Header: back link, title, prev/next navigation -->
+        <div class="header">
+          <div class="back">
+            <!-- Link to Django admin home for convenience -->
+            <a href="/admin/">← Admin</a>
+          </div>
+          <h2 class="title">Bookings — {{ month_name }} {{ year }}</h2>
+          <div class="nav">
+            <!-- Previous month -->
+            <a href="?year={{ prev_year }}&month={{ prev_month }}">‹ {{ prev_month }}/{{ prev_year }}</a>
+            <!-- Next month -->
+            <a href="?year={{ next_year }}&month={{ next_month }}" style="margin-left:6px;">
+              {{ next_month }}/{{ next_year }} ›
+            </a>
+          </div>
         </div>
 
-        <!-- Day-of-week header -->
-        <div class="grid">
-          <div class="cell muted">Mon</div>
-          <div class="cell muted">Tue</div>
-          <div class="cell muted">Wed</div>
-          <div class="cell muted">Thu</div>
-          <div class="cell muted">Fri</div>
-          <div class="cell muted">Sat</div>
-          <div class="cell muted">Sun</div>
+        <!-- Day-of-week header row -->
+        <div class="grid-dow">
+          <div class="dow">Mon</div>
+          <div class="dow">Tue</div>
+          <div class="dow">Wed</div>
+          <div class="dow">Thu</div>
+          <div class="dow">Fri</div>
+          <div class="dow">Sat</div>
+          <div class="dow">Sun</div>
         </div>
 
         <!-- Month grid -->
-        <div class="grid">
+        <div class="grid-days">
+          {% comment %}
+          We receive 'cells' from the view. Each cell is either:
+            - {"blank": True}  -> leading empty cells before day 1
+            - {"blank": False, "day": N, "bookings": [...] }
+          {% endcomment %}
+
           {% for cell in cells %}
             {% if cell.blank %}
-              <div class="cell muted"></div>
+              <div class="cell blank"></div>
             {% else %}
               <div class="cell">
                 <div class="day-num">{{ cell.day }}</div>
+
                 {% if cell.bookings %}
                   {% for b in cell.bookings %}
                     <div class="booking">
-                      <div><strong>{{ b.time }}</strong> — {{ b.service }}</div>
-                      <div class="muted">
-                        {{ b.client }}{% if b.staff %} · {{ b.staff }}{% endif %}
+                      <div class="info">
+                        <div class="time">{{ b.time }}</div>
+                        <div><strong>{{ b.service }}</strong></div>
+                        <div class="meta">
+                          {{ b.client }}{% if b.staff %} · {{ b.staff }}{% endif %}
+                        </div>
                       </div>
-                      {% if b.status %}<div class="muted">Status: {{ b.status }}</div>{% endif %}
+
+                      {% comment %}
+                      Status badge logic:
+                      - The calendar already excludes CANCELLED from the query in the view.
+                      - If you later add more statuses (e.g., PENDING), they'll display.
+                      {% endcomment %}
+                      {% if b.status %}
+                        {% with b.status|upper as st %}
+                          {% if st == "CONFIRMED" %}
+                            <span class="badge confirmed">Confirmed</span>
+                          {% elif st == "CANCELLED" %}
+                            <span class="badge cancelled">Cancelled</span>
+                          {% else %}
+                            <span class="badge other">{{ st|title }}</span>
+                          {% endif %}
+                        {% endwith %}
+                      {% endif %}
                     </div>
                   {% endfor %}
                 {% else %}
-                  <div class="muted">No bookings</div>
+                  <div class="meta" style="color: var(--muted);">No bookings</div>
                 {% endif %}
               </div>
             {% endif %}

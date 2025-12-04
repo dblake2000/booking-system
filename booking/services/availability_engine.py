@@ -8,6 +8,11 @@ Computes availability by checking candidate time slots against:
 Defensive checks:
 - Skip any 'staff' that isn't a booking.models.Staff instance to avoid
   'Cannot query "<name>": Must be "Staff" instance' errors.
+
+Change log (2025-12-03):
+- _has_booking_conflict now uses symmetric overlap detection:
+  existing_start < new_end AND existing_end > new_start
+  to avoid missed overlaps or false negatives.
 """
 
 from datetime import timedelta
@@ -28,13 +33,25 @@ class AvailabilityEngine:
         return isinstance(staff, Staff)
 
     def _has_booking_conflict(self, staff, start_time, duration_minutes: int) -> bool:
+        """
+        Robust overlap check:
+        Conflict if any existing booking for 'staff' satisfies:
+            existing_start < new_end AND existing_end > new_start
+        where existing_end = existing_start + existing.service.duration_minutes
+        """
         if not self._is_valid_staff(staff):
             return True  # treat as conflict; skip invalid values
-        duration = timedelta(minutes=duration_minutes)
-        end_time = start_time + duration
-        return Booking.objects.filter(staff=staff).filter(
-            Q(start_time__lt=end_time) & Q(start_time__gte=start_time - duration)
-        ).exists()
+
+        new_start = start_time
+        new_end = start_time + timedelta(minutes=duration_minutes)
+
+        # Compute overlaps in Python (portable and clear)
+        for b in Booking.objects.filter(staff=staff).select_related("service"):
+            existing_start = b.start_time
+            existing_end = b.start_time + timedelta(minutes=b.service.duration_minutes)
+            if existing_start < new_end and existing_end > new_start:
+                return True
+        return False
 
     def _fits_staff_availability(self, staff, start_time, duration_minutes: int) -> bool:
         if not HAS_STAFF_AVAILABILITY:
@@ -66,11 +83,11 @@ class AvailabilityEngine:
     def find_available_slots(self, service, date_start, staff_queryset):
         from .slot_utils import generate_slots_for_day
 
-        # DEBUG — uncomment to see exactly what you're iterating:
-        print("DEBUG staff values:", [
-             (getattr(s, "id", None), getattr(s, "name", None), type(s))
-             for s in staff_queryset
-         ])
+        # DEBUG — uncomment to inspect the staff list
+        # print("DEBUG staff values:", [
+        #      (getattr(s, "id", None), getattr(s, "name", None), type(s))
+        #      for s in staff_queryset
+        #  ])
 
         slots = generate_slots_for_day(
             service_duration_minutes=service.duration_minutes,
@@ -82,7 +99,7 @@ class AvailabilityEngine:
             free_staff_ids = []
             for staff in staff_queryset:
                 if not self._is_valid_staff(staff):
-                    continue  # skip bad values (e.g., "Lasheka")
+                    continue  # skip bad values
                 if self.is_slot_available_for_staff(staff, service, start):
                     free_staff_ids.append(staff.id)
             if free_staff_ids:

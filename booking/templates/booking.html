@@ -5,13 +5,16 @@
     <title>Hair by Lasheka — Booking</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- Google Fonts -->
+    <!-- Google Fonts (Brand + Body) -->
     <link
       href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@300;400;600&display=swap"
       rel="stylesheet"
     />
 
     <style>
+      /* =========================
+         Theme variables + layout
+         ========================= */
       :root {
         --brand-teal: #2aa39a;
         --panel-cream: #fffaf2;
@@ -81,7 +84,9 @@
         }
       }
 
-      /* Catalog */
+      /* =========================
+         Catalog + form aesthetics
+         ========================= */
       .category {
         margin-top: 8px;
       }
@@ -110,7 +115,9 @@
         margin-top: 8px;
       }
 
-      /* Form */
+      /* =========================
+         Form controls + buttons
+         ========================= */
       label {
         font-weight: 600;
         display: block;
@@ -166,6 +173,9 @@
         overflow: auto;
       }
 
+      /* =========================
+         Time slot buttons
+         ========================= */
       .slot-btn {
         display: inline-block;
         margin: 6px 8px 0 0;
@@ -186,6 +196,26 @@
         color: #0a3d3d;
         font-weight: 700;
       }
+
+      /* =========================
+         Header link styles
+         ========================= */
+      .header-link {
+        background: #fff;
+        color: #1d2b2b;
+        text-decoration: none;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        font-weight: 600;
+        margin-right: 6px;
+        display: inline-block;
+      }
+      .header-link--cancel {
+        background: #fef3c7;
+        color: #3b2f02;
+        font-weight: 800;
+      }
     </style>
   </head>
 
@@ -194,26 +224,23 @@
       <h1 class="brand-title">Hair by Lasheka</h1>
       <p class="brand-sub">Beautiful protective styles • Honest pricing • Easy booking</p>
 
-      <!-- Links row: Bookings button only for staff; otherwise Login -->
+      <!-- Header links:
+           - Staff see Bookings + Staff Admin
+           - Everyone sees a Cancel Booking button (public flow) -->
       <div style="margin-top: 8px">
         {% if request.user.is_authenticated and request.user.is_staff %}
           <!-- Staff-only: Bookings calendar link (requires URL name 'bookings_calendar') -->
-          <a
-            href="{% url 'bookings_calendar' %}"
-            style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600; margin-right:6px;"
-            >Bookings</a>
+          <a href="{% url 'bookings_calendar' %}" class="header-link">Bookings</a>
           <!-- Staff Admin shortcut (default Django admin) -->
-          <a
-            href="/admin/"
-            style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600;"
-            >Staff Admin</a>
+          <a href="/admin/" class="header-link">Staff Admin</a>
         {% else %}
           <!-- Public: Login link to admin (so staff can sign in) -->
-          <a
-            href="/admin/login/?next={{ request.path|urlencode }}"
-            style="background:#fff; color:#1d2b2b; text-decoration:none; padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,.1); font-weight:600;"
-            >Login</a>
+          <a href="/admin/login/?next={{ request.path|urlencode }}" class="header-link">Login</a>
         {% endif %}
+
+        <!-- Public: Cancel Booking button (leads to public HTML page, NOT API) -->
+        <!-- IMPORTANT: This path is non-API to avoid DRF router collisions -->
+        <a href="/bookings/cancel/" class="header-link header-link--cancel">Cancel Booking</a>
       </div>
     </header>
 
@@ -264,8 +291,14 @@
             <label>Your Email</label>
             <input id="clientEmail" placeholder="jane@example.com" />
 
+            <!--
+              Phone entry rule:
+              - We accept digits only (7–15) to keep backend validation simple
+              - But we display a readable preview like (876) 123-4567 below
+            -->
             <label>Your Phone (digits only, 7–15)</label>
             <input id="clientPhone" placeholder="8761234567" />
+            <div id="phonePretty" class="note"></div>
 
             <label>Staff ID (optional)</label>
             <input id="staffId" placeholder="e.g., 1 — if blank we’ll assign" />
@@ -290,7 +323,9 @@
     </div>
 
     <script>
-      // CSRF helper
+      /* =========================
+         CSRF helper for POSTs
+         ========================= */
       function getCookie(name) {
         const value = `; ${document.cookie}`;
         const parts = value.split(`; ${name}=`);
@@ -299,7 +334,9 @@
       }
       const csrftoken = getCookie("csrftoken");
 
-      // Group services like the flyers
+      /* =========================
+         Service catalog grouping
+         ========================= */
       const GROUPS = [
         {
           title: "Knotless Braids & Senegalese Twists",
@@ -317,7 +354,33 @@
       // Track selected slot button (UI highlight)
       let selectedSlotButton = null;
 
-      // Load services
+      /* =========================
+         Readable phone preview
+         - Keep input digits-only
+         - Show (876) 123-4567 in note preview
+         ========================= */
+      const phoneInput = document.getElementById("clientPhone");
+      const phonePretty = document.getElementById("phonePretty");
+
+      function formatJA(num) {
+        const s = (num || "").replace(/\D/g, "");
+        if (s.length >= 10) return `(${s.slice(0,3)}) ${s.slice(3,6)}-${s.slice(6,10)}${s.length>10?"…":""}`;
+        if (s.length >= 7) return `(${s.slice(0,3)}) ${s.slice(3,6)}-${s.slice(6)}`;
+        if (s.length >= 3) return `(${s.slice(0,3)}) ${s.slice(3)}`;
+        return s;
+      }
+
+      phoneInput.addEventListener("input", () => {
+        const digits = phoneInput.value.replace(/\D/g, "");
+        phoneInput.value = digits;
+        phonePretty.textContent = digits ? "Entered: " + formatJA(digits) : "";
+      });
+
+      /* =========================
+         Load services into:
+         - select#serviceSelect (for booking)
+         - grouped catalog (left panel)
+         ========================= */
       async function loadServices() {
         const r = await fetch("/api/services/");
         const services = await r.json();
@@ -359,7 +422,9 @@
         }
       }
 
-      // Show available slots
+      /* =========================
+         Availability + slot select
+         ========================= */
       async function checkAvailability() {
         const serviceId = document.getElementById("serviceSelect").value;
         const dateStr = document.getElementById("dateStr").value.trim();
@@ -407,6 +472,7 @@
             document.getElementById("prettyTime").textContent =
               "Selected: " + new Date(iso).toLocaleString();
 
+            // Pre-fill staff if the availability engine recommends one
             if (s.staff_ids && s.staff_ids.length) {
               document.getElementById("staffId").value = s.staff_ids[0];
             }
@@ -416,7 +482,15 @@
         });
       }
 
-      // Create client and booking
+      /* =========================
+         Create booking
+         - Validates:
+           * required fields
+           * phone digits-only (7..15)
+           * start time selected
+         - Creates client; then booking
+         - Redirects to confirmation page
+         ========================= */
       async function createBooking() {
         const name = document.getElementById("clientName").value.trim();
         const email = document.getElementById("clientEmail").value.trim();
@@ -431,6 +505,7 @@
         const staff = staffRaw ? parseInt(staffRaw, 10) : null;
         const start_time = document.getElementById("startIso").value.trim();
 
+        // Basic validations
         if (!name || !email || !phone) {
           document.getElementById("result").textContent =
             "Please fill name, email, and phone.";
@@ -489,7 +564,7 @@
           url.searchParams.set("service", svcName);
           url.searchParams.set("price", svcPrice);
           url.searchParams.set("start", result.start_time);
-          url.searchParams.set("phone", phone); // so we can display phone on confirmation
+          url.searchParams.set("phone", phone); // we will format for display on confirm page
           window.location.href = url.toString();
         } else {
           document.getElementById("result").textContent = JSON.stringify(
@@ -500,6 +575,7 @@
         }
       }
 
+      // Boot
       loadServices();
     </script>
   </body>

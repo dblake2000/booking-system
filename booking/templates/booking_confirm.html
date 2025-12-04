@@ -2,52 +2,203 @@
 <html>
   <head>
     <meta charset="utf-8" />
+    <!-- 
+      Viewport meta so layout is readable on phones.
+      We try to keep this page lightweight since it's a simple confirmation screen.
+    -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Booking Confirmation</title>
+
+    <!-- 
+      Typography:
+      - Inter is the primary sans-serif used across the app
+    -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap"
       rel="stylesheet"
     />
+
     <style>
-      body { font-family: Inter, sans-serif; background:#f6fbfb; margin:0; }
-      .wrap { max-width:640px; margin:60px auto; background:#fff; padding:24px;
-              border-radius:12px; border:1px solid rgba(0,0,0,.08);
-              box-shadow:0 12px 24px rgba(0,0,0,.06); }
-      h1 { margin:0 0 8px; }
-      .row { margin:8px 0; }
-      .label { color:rgba(0,0,0,.6); font-size:.95rem; display:inline-block; width:140px; }
-      .val { font-weight:600; }
-      a.btn { display:inline-block; margin-top:16px; background:#f6cf7a; color:#3b2f02;
-              padding:10px 12px; border-radius:10px; text-decoration:none; font-weight:700; }
+      /* 
+        Simple, clean styling consistent with the rest of the site 
+      */
+      body {
+        font-family: Inter, sans-serif;
+        background: #f6fbfb;
+        margin: 0;
+        color: #1d2b2b;
+      }
+      .wrap {
+        max-width: 640px;
+        margin: 60px auto;
+        background: #fff;
+        padding: 24px;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+      }
+      h1 {
+        margin: 0 0 8px;
+      }
+      .row {
+        margin: 10px 0;
+        display: flex;
+        align-items: baseline;
+      }
+      .label {
+        color: rgba(0, 0, 0, 0.6);
+        font-size: 0.95rem;
+        display: inline-block;
+        width: 160px; /* a little wider for long labels */
+      }
+      .val {
+        font-weight: 600;
+        word-break: break-word;
+      }
+      a.btn {
+        display: inline-block;
+        margin-top: 16px;
+        background: #f6cf7a;
+        color: #3b2f02;
+        padding: 10px 12px;
+        border-radius: 10px;
+        text-decoration: none;
+        font-weight: 700;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+      }
+      .note {
+        color: rgba(0, 0, 0, 0.55);
+        font-size: 0.95rem;
+        margin-top: 8px;
+      }
+
+      /* 
+        Responsive tweaks: narrow screens get a little more breathing room 
+      */
+      @media (max-width: 480px) {
+        .label {
+          width: 120px;
+        }
+        .wrap {
+          margin: 24px 12px;
+          padding: 18px;
+        }
+      }
     </style>
   </head>
+
   <body>
     <div class="wrap">
       <h1>Booking Confirmed</h1>
+      <p class="note">
+        Thank you for booking with Hair by Lasheka! A confirmation email has been
+        sent to the address you provided. Keep these details handy.
+      </p>
 
-      <div class="row"><span class="label">Booking ID:</span> <span id="bid" class="val"></span></div>
-      <div class="row"><span class="label">Service:</span> <span id="svc" class="val"></span></div>
-      <div class="row"><span class="label">Price:</span> <span id="price" class="val"></span></div>
-      <div class="row"><span class="label">Date & Time:</span> <span id="dt" class="val"></span></div>
-      <div class="row"><span class="label">Phone:</span> <span id="phone" class="val"></span></div>
+      <!-- 
+        These rows are populated by the query string parameters:
+        - id       (Booking ID)
+        - service  (Human-friendly service name)
+        - price    (Service price; we display as received)
+        - start    (ISO date string; we render using toLocaleString)
+        - phone    (Digits-only string; we display in a formatted style)
+      -->
+      <div class="row">
+        <span class="label">Booking ID:</span>
+        <span id="bid" class="val"></span>
+      </div>
 
+      <div class="row">
+        <span class="label">Service:</span>
+        <span id="svc" class="val"></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Price:</span>
+        <span id="price" class="val"></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Date &amp; Time:</span>
+        <span id="dt" class="val"></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Phone:</span>
+        <span id="phone" class="val"></span>
+      </div>
+
+      <!-- 
+        Primary navigation back to the main booking page.
+        If you later add a "Cancel Booking" page, consider linking it here as well.
+      -->
       <a class="btn" href="/api/demo/booking">Back to Booking</a>
+
+      <!-- Optional: small support note -->
+      <p class="note">
+        Need to make changes? You can cancel or rebook from the main booking page.
+      </p>
     </div>
 
     <script>
-      // Expect query string: ?id=..&service=..&price=..&start=ISO&phone=..
+      // Developer note:
+      // We read values from the current URL's query string and safely render them.
+      // Example source URL built by your frontend:
+      //   /api/confirm?id=27&service=Knotless%20Braids&price=2500&start=2025-12-23T10:30:00-05:00&phone=8761234567
+
       const params = new URLSearchParams(window.location.search);
 
-      // Fill values
-      document.getElementById("bid").textContent   = params.get("id")     || "";
-      document.getElementById("svc").textContent   = params.get("service")|| "";
-      document.getElementById("price").textContent = params.get("price")  || "";
+      // Defensive helper to avoid printing raw "null"/"undefined"
+      function safeVal(v) {
+        return v == null ? "" : String(v);
+      }
 
+      // Render a readable phone number while preserving digits-only semantics
+      // Upstream we validate digits-only input. Here we just format for display.
+      function formatJamaicanPhone(num) {
+        const s = (num || "").replace(/\D/g, "");
+        if (s.length >= 10) {
+          // Standard rendering: (876) 123-4567 (truncate beyond 10 with ellipsis)
+          return `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6, 10)}${
+            s.length > 10 ? "…" : ""
+          }`;
+        }
+        if (s.length >= 7) {
+          return `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6)}`;
+        }
+        if (s.length >= 3) {
+          return `(${s.slice(0, 3)}) ${s.slice(3)}`;
+        }
+        return s;
+      }
+
+      // Populate rows from query string
+      const id = safeVal(params.get("id"));
+      const service = safeVal(params.get("service"));
+      const price = safeVal(params.get("price"));
       const iso = params.get("start");
-      document.getElementById("dt").textContent = iso ? new Date(iso).toLocaleString() : "";
+      const phoneDigits = safeVal(params.get("phone"));
 
-      const phone = params.get("phone");
-      document.getElementById("phone").textContent = phone || "";
+      document.getElementById("bid").textContent = id;
+      document.getElementById("svc").textContent = service;
+
+      // Price is displayed "as-is" to avoid guessing currency formatting.
+      // If you want to format as JMD consistently, you could use Intl.NumberFormat.
+      document.getElementById("price").textContent = price;
+
+      // Show the date/time in the user's locale.
+      // If you want a fixed business timezone, pre-render a formatted string server-side,
+      // or pass a formatted string on the query string and display it here.
+      document.getElementById("dt").textContent = iso
+        ? new Date(iso).toLocaleString()
+        : "";
+
+      // Show the formatted phone for readability.
+      document.getElementById("phone").textContent = formatJamaicanPhone(phoneDigits);
+
+      // Developer notes / future improvements:
+      // - If you want to show the assigned staff member, pass it on the query string and render similarly.
+      // - If you need to verify the confirmation server-side, consider an ID token here too.
     </script>
   </body>
 </html>

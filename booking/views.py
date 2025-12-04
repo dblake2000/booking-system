@@ -12,6 +12,8 @@
 # - On successful booking creation, set status="confirmed" and save.
 #   This triggers the notifications.signals.post_save hook to send the
 #   confirmation email using Django's email backend configured in settings.
+# - Added server-side fallback: if posted staff is busy or missing, auto-assign
+#   a free staff (re-validates with AvailabilityEngine at create time).
 #
 import re
 from django.utils.dateparse import parse_date
@@ -51,14 +53,18 @@ class IsStaffOrReadOnly(BasePermission):
 
 
 # -------------------- ViewSets --------------------
+# booking/views.py (excerpt)
 class ClientProfileViewSet(viewsets.ModelViewSet):
     queryset = ClientProfile.objects.all().order_by("id")
     serializer_class = ClientProfileSerializer
 
     def create(self, request, *args, **kwargs):
         """
-        Create ClientProfile with basic validation for name/email/phone.
-        Phone must be 7–15 digits (digits only).
+        Create-or-reuse ClientProfile with normalized (trimmed) fields.
+        - We prevent duplicates by checking existing by (name, email, phone)
+          in a case-insensitive way for name/email and exact match for phone.
+        - If found, return the existing profile (200 OK).
+        - If not found, create a new one (201 Created).
         """
         name = (request.data.get("name") or "").strip()
         email = (request.data.get("email") or "").strip()
@@ -67,12 +73,25 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
         if not name or not email or not phone:
             return Response({"detail": "name, email, and phone are required."}, status=400)
 
-        if not PHONE_RE.match(phone):
-            return Response(
-                {"detail": "Phone must be digits only, 7 to 15 digits."},
-                status=400,
-            )
+        # Keep the same phone rule as booking (digits-only, 7–15)
+        import re
+        if not re.match(r"^\d{7,15}$", phone):
+            return Response({"detail": "Phone must be digits only, 7 to 15 digits."}, status=400)
 
+        # Try to find an existing profile (case-insensitive for name/email; phone exact)
+        # NOTE: Using iexact for name/email to be user-friendly.
+        existing = ClientProfile.objects.filter(
+            name__iexact=name,
+            email__iexact=email,
+            phone=phone,
+        ).first()
+
+        if existing:
+            # Return existing record (id, etc.) with 200 OK
+            data = self.get_serializer(existing).data
+            return Response(data, status=200)
+
+        # Create a new one if not found
         serializer = self.get_serializer(data={"name": name, "email": email, "phone": phone})
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -164,6 +183,25 @@ class BookingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Ensure aware datetime for consistent comparisons
+        if timezone.is_naive(start_time):
+            start_time = timezone.make_aware(start_time, timezone.get_current_timezone())
+
+        # Server-side fallback: auto-assign any free staff if provided staff is busy or missing
+        eng = AvailabilityEngine()
+
+        def staff_is_free(s):
+            return eng.is_slot_available_for_staff(s, service, start_time)
+
+        if staff is None or not staff_is_free(staff):
+            for s in Staff.objects.all().order_by("id"):
+                if staff_is_free(s):
+                    staff = s
+                    break
+
+        if staff is None or not staff_is_free(staff):
+            return Response({"detail": "No staff available for that time."}, status=status.HTTP_400_BAD_REQUEST)
+
         # Create booking via domain manager to keep logic centralized
         try:
             booking = self.manager.create_booking(
@@ -174,21 +212,13 @@ class BookingViewSet(viewsets.ModelViewSet):
                 notes=notes,
             )
         except ValueError as e:
+            # If any additional domain rule blocks creation, return 400 with reason
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Immediately confirm booking so the post_save signal sends the email.
-        # The signal handler lives in notifications/signals.py and will:
-        # - Compose a professional confirmation message
-        # - Send an email to booking.client.email
-        # - Create a Notification record
-        if getattr(booking, "status", None) != "confirmed":
-            booking.status = "confirmed"
-            # Save only the field that changed to avoid redundant writes
+        if getattr(booking, "status", None) != "CONFIRMED":
+            booking.status = "CONFIRMED"
             booking.save(update_fields=["status"])
-
-        # Note: Leaving legacy console confirmation call in place is optional.
-        # It can be removed if redundant with real email sending via signal.
-        # self.notifier.send_confirmation(booking)
 
         # Re-serialize to include updated status
         out = BookingSerializer(booking)
